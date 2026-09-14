@@ -1,19 +1,16 @@
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain_community.document_loaders import PyPDFLoader
 from langchain_chroma import Chroma
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnablePassthrough
-from langchain_core.output_parsers import StrOutputParser
-from pathlib import Path
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+
+from rag_pipeline_articles import build_rag_chain, split_by_articles
 
 
 load_dotenv()
-
-model_name = os.getenv("MODEL_NAME", "gpt-4o-mini")
 
 model = ChatOpenAI(
     model=os.getenv("MODEL_NAME", "deepseek-chat"),
@@ -23,58 +20,38 @@ model = ChatOpenAI(
 )
 
 embeddings = OpenAIEmbeddings(
-    model=os.getenv(
-        "SILICONFLOW_EMBEDDING_MODEL",
-        "BAAI/bge-m3",
-    ),
+    model=os.getenv("SILICONFLOW_EMBEDDING_MODEL", "BAAI/bge-m3"),
     api_key=os.getenv("SILICONFLOW_API_KEY"),
-    base_url=os.getenv(
-        "SILICONFLOW_BASE_URL",
-        "https://api.siliconflow.cn/v1",
-    ),
+    base_url=os.getenv("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1"),
     check_embedding_ctx_length=False,
 )
 
-# 1. 加载 PDF
 loader = PyPDFLoader("data/labor_law.pdf")
 documents = loader.load()
+chunks = split_by_articles(documents)
+print(f"按法律条文切分后的 chunks 数量：{len(chunks)}")
 
-print(f"原始文档数量：{len(documents)}")
-
-# 2. 切分文本
-splitter = RecursiveCharacterTextSplitter(
-    chunk_size=800,
-    chunk_overlap=100
-)
-
-chunks = splitter.split_documents(documents)
-
-print(f"切分后的文本块数量：{len(chunks)}")
-
-# 3. 建立向量数据库
-
-DB_DIR = "./chroma_db"
+DB_DIR = "./chroma_articles_db"
 
 if Path(DB_DIR).exists():
-    print("加载已有向量数据库")
+    print("加载已有法律条文向量数据库")
     vectorstore = Chroma(
-        collection_name="labor_law",
+        collection_name="labor_law_articles",
         persist_directory=DB_DIR,
         embedding_function=embeddings,
     )
 else:
-    print("首次建立向量数据库")
+    print("首次建立法律条文向量数据库")
     vectorstore = Chroma.from_documents(
         documents=chunks,
         embedding=embeddings,
-        collection_name="labor_law",
+        collection_name="labor_law_articles",
         persist_directory=DB_DIR,
     )
 
-# 4. 创建检索器
 retriever = vectorstore.as_retriever(
     search_type="similarity",
-    search_kwargs={"k": 8}
+    search_kwargs={"k": 8},
 )
 
 prompt = ChatPromptTemplate.from_template("""
@@ -92,46 +69,22 @@ prompt = ChatPromptTemplate.from_template("""
 请给出清晰、谨慎的回答，并尽可能引用相关条文或页码。
 """)
 
-
-def format_docs(docs):
-    return "\n\n".join(
-        f"来源信息：{doc.metadata}\n{doc.page_content}"
-        for doc in docs
-    )
-
-
-rag_chain = (
-    {
-        "context": retriever | format_docs,
-        "question": RunnablePassthrough(),
-    }
-    | prompt
-    | model
-    | StrOutputParser()
-)
-
-
-def ask(question: str):
-    # 仅用于学习和调试：先单独查看检索结果
-    docs = retriever.invoke(question)
-
-    print("\n=== 本次检索到的文本块 ===")
-    for i, doc in enumerate(docs, 1):
-        print(f"\n--- 结果 {i} ---")
-        print("元数据：", doc.metadata)
-        print("内容：", doc.page_content[:500])
-
-    # 仍然用 Runnable 生成最终答案
-    return rag_chain.invoke(question)
+rag_chain = build_rag_chain(retriever, prompt, model)
 
 
 if __name__ == "__main__":
     while True:
         question = input("\n请输入问题，输入 q 退出：")
-
         if question.lower() == "q":
             break
 
-        answer = ask(question)
+        result = rag_chain.invoke(question)
+
         print("\n回答：")
-        print(answer)
+        print(result["answer"])
+
+        print("\n参考来源：")
+        for source in result["sources"]:
+            pages = ", ".join(str(page) for page in source["pages"])
+            summary = source["content"].replace("\n", " ")[:160]
+            print(f"- {source['article']}，PDF 第 {pages} 页：{summary}")
