@@ -5,9 +5,14 @@ from dotenv import load_dotenv
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnableLambda
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
-from rag_pipeline_articles import build_rag_chain, split_by_articles
+from rag_pipeline_articles import (
+    SiliconFlowReranker,
+    build_rag_chain,
+    split_by_articles,
+)
 
 
 load_dotenv()
@@ -49,9 +54,31 @@ else:
         persist_directory=DB_DIR,
     )
 
+CANDIDATE_K = int(os.getenv("RETRIEVAL_K", "8"))
+RERANK_TOP_N = int(os.getenv("RERANK_TOP_N", "3"))
+
 retriever = vectorstore.as_retriever(
     search_type="similarity",
-    search_kwargs={"k": 8},
+    search_kwargs={"k": CANDIDATE_K},
+)
+
+reranker_client = SiliconFlowReranker(
+    api_key=os.getenv("SILICONFLOW_API_KEY"),
+    base_url=os.getenv(
+        "SILICONFLOW_BASE_URL",
+        "https://api.siliconflow.cn/v1",
+    ),
+    model=os.getenv(
+        "SILICONFLOW_RERANK_MODEL",
+        "BAAI/bge-reranker-v2-m3",
+    ),
+    top_n=RERANK_TOP_N,
+)
+reranker = RunnableLambda(
+    lambda state: reranker_client.rerank(
+        state["question"],
+        state["candidates"],
+    )
 )
 
 prompt = ChatPromptTemplate.from_template("""
@@ -69,7 +96,7 @@ prompt = ChatPromptTemplate.from_template("""
 请给出清晰、谨慎的回答，并尽可能引用相关条文或页码。
 """)
 
-rag_chain = build_rag_chain(retriever, prompt, model)
+rag_chain = build_rag_chain(retriever, reranker, prompt, model)
 
 
 if __name__ == "__main__":
@@ -80,11 +107,29 @@ if __name__ == "__main__":
 
         result = rag_chain.invoke(question)
 
+        print("\nChroma 召回的候选法条（重排前）：")
+        for index, candidate in enumerate(result["candidates"], start=1):
+            pages = ", ".join(str(page) for page in candidate["pages"])
+            print(f"{index}. {candidate['article']}，PDF 第 {pages} 页")
+
         print("\n回答：")
         print(result["answer"])
 
-        print("\n参考来源：")
+        print("\n参考来源（Reranker 重排后）：")
         for source in result["sources"]:
             pages = ", ".join(str(page) for page in source["pages"])
-            summary = source["content"].replace("\n", " ")[:160]
-            print(f"- {source['article']}，PDF 第 {pages} 页：{summary}")
+            content = source["content"].replace("\n", " ")
+            summary = content[:160]
+
+            if len(content) > 160:
+                summary += "……"
+            score = source.get("rerank_score")
+            score_text = (
+                f"，相关度：{score:.4f}"
+                if isinstance(score, (int, float))
+                else ""
+            )
+            print(
+                f"- {source['article']}，PDF 第 {pages} 页"
+                f"{score_text}：{summary}"
+            )
