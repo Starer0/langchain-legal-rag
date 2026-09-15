@@ -1,5 +1,7 @@
 import unittest
+from pathlib import Path
 
+from evaluate import find_case, load_cases
 from evaluation import (
     PREVIEW_LENGTH,
     add_assistant_review,
@@ -31,6 +33,18 @@ CHAIN_RESULT = {
 
 
 class EvaluationTests(unittest.TestCase):
+    def test_load_cases_reads_the_exact_local_dataset(self):
+        cases = load_cases(Path("evals/cases.json"))
+
+        self.assertEqual(len(cases), 12)
+        self.assertEqual(len({case["id"] for case in cases}), 12)
+        self.assertEqual(cases[0]["expected_articles"], ["第二十一条"])
+        self.assertFalse(cases[9]["answerable"])
+
+    def test_find_case_rejects_an_unknown_case_id(self):
+        with self.assertRaises(ValueError):
+            find_case([], "unknown-case")
+
     def build_result(self):
         return build_case_result(
             CASE,

@@ -1,0 +1,86 @@
+[
+  {
+    "id": "probation-limit",
+    "question": "试用期最长是多久？",
+    "expected_articles": ["第二十一条"],
+    "required_facts": ["试用期最长不得超过六个月"],
+    "answerable": true
+  },
+  {
+    "id": "resignation-notice",
+    "question": "劳动者辞职需要提前多少天通知单位？",
+    "expected_articles": ["第三十一条"],
+    "required_facts": ["提前三十日", "书面形式通知"],
+    "answerable": true
+  },
+  {
+    "id": "working-hours",
+    "question": "劳动者每天和每周工作时间最长是多少？",
+    "expected_articles": ["第三十六条"],
+    "required_facts": ["每日不超过八小时", "平均每周不超过四十四小时"],
+    "answerable": true
+  },
+  {
+    "id": "overtime-pay",
+    "question": "加班工资如何计算？",
+    "expected_articles": ["第四十四条"],
+    "required_facts": ["150%", "休息日不能补休 200%", "法定休假日 300%"],
+    "answerable": true
+  },
+  {
+    "id": "overtime-limit-and-pay",
+    "question": "单位安排加班最多能延长多久，加班费怎样支付？",
+    "expected_articles": ["第四十一条", "第四十四条"],
+    "required_facts": ["一般每日一小时", "特殊每日三小时", "每月三十六小时", "加班工资标准"],
+    "answerable": true
+  },
+  {
+    "id": "maternity-leave",
+    "question": "女职工产假至少有多少天？",
+    "expected_articles": ["第六十二条"],
+    "required_facts": ["不少于九十天"],
+    "answerable": true
+  },
+  {
+    "id": "minimum-wage",
+    "question": "用人单位支付的工资最低要满足什么标准？",
+    "expected_articles": ["第四十八条"],
+    "required_facts": ["不得低于当地最低工资标准"],
+    "answerable": true
+  },
+  {
+    "id": "arbitration-limit",
+    "question": "劳动争议申请仲裁的期限是多久？",
+    "expected_articles": ["第八十二条"],
+    "required_facts": ["自劳动争议发生之日起六十日内"],
+    "answerable": true
+  },
+  {
+    "id": "holiday-overtime-premise",
+    "question": "法定节假日加班只需要支付双倍工资吗？",
+    "expected_articles": ["第四十四条"],
+    "required_facts": ["法定休假日", "不低于 300%"],
+    "answerable": true
+  },
+  {
+    "id": "probation-salary-eighty-percent",
+    "question": "试用期工资不得低于转正工资的百分之八十吗？",
+    "expected_articles": [],
+    "required_facts": [],
+    "answerable": false
+  },
+  {
+    "id": "annual-leave-five-days",
+    "question": "连续工作满一年后年休假一定是五天吗？",
+    "expected_articles": [],
+    "required_facts": [],
+    "answerable": false
+  },
+  {
+    "id": "piecework-overtime-formula",
+    "question": "计件工作的加班工资具体应该怎样计算？",
+    "expected_articles": [],
+    "required_facts": [],
+    "answerable": false
+  }
+]
