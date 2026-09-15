@@ -139,3 +139,7 @@ def main(argv: list[str] | None = None) -> Path:
             args.case_id, args.run_id, args.verdict, args.reason, args.evidence_article
         )
     return summarize_run(args.run_id)
+
+
+if __name__ == "__main__":
+    main()

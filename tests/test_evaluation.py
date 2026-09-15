@@ -1,3 +1,5 @@
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -33,6 +35,17 @@ CHAIN_RESULT = {
 
 
 class EvaluationTests(unittest.TestCase):
+    def test_script_entrypoint_dispatches_to_argparse(self):
+        completed = subprocess.run(
+            [sys.executable, "evaluate.py"],
+            cwd=Path(__file__).resolve().parents[1],
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("usage:", completed.stderr)
+
     def test_load_cases_reads_the_exact_local_dataset(self):
         cases = load_cases(Path("evals/cases.json"))
 
