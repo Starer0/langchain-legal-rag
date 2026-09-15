@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 
+from langchain_community.document_loaders import PyPDFLoader
 from dotenv import load_dotenv
 from langchain_chroma import Chroma
 from langchain_core.prompts import ChatPromptTemplate
@@ -15,8 +16,6 @@ from rag_pipeline_articles import (
 
 
 def create_rag_chain():
-    from langchain_community.document_loaders import PyPDFLoader
-
     load_dotenv()
 
     model = ChatOpenAI(

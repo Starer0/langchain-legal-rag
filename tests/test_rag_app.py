@@ -3,18 +3,22 @@ from unittest.mock import patch
 
 
 class CreateRagChainTests(unittest.TestCase):
+    @patch("builtins.print")
     @patch("rag_app.build_rag_chain")
     @patch("rag_app.Chroma")
     @patch("rag_app.OpenAIEmbeddings")
     @patch("rag_app.ChatOpenAI")
+    @patch("rag_app.PyPDFLoader")
     @patch("rag_app.load_dotenv")
     def test_creates_shared_chain(
         self,
         load_dotenv,
+        pdf_loader,
         chat_openai,
         openai_embeddings,
         chroma,
         build_chain,
+        print_output,
     ):
         chroma.return_value.as_retriever.return_value = "retriever"
         build_chain.return_value = "shared-chain"
