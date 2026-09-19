@@ -1,0 +1,62 @@
+[
+  {
+    "id": "trial-period-wage-follow-up",
+    "history": [
+      {"role": "human", "content": "试用期最长多久？"},
+      {"role": "ai", "content": "试用期可以约定，但期限受法律限制。"}
+    ],
+    "question": "那工资呢？",
+    "expected_articles": ["第二十条"],
+    "expected_retrieval_terms": ["试用期", "工资"]
+  },
+  {
+    "id": "national-day-overtime-follow-up",
+    "history": [
+      {"role": "human", "content": "周日加班工资怎么算？"},
+      {"role": "ai", "content": "休息日安排劳动且不能补休的，应支付相应加班工资。"}
+    ],
+    "question": "如果是国庆当天呢？",
+    "expected_articles": ["第四十四条"],
+    "expected_retrieval_terms": ["国庆节", "加班工资"]
+  },
+  {
+    "id": "arbitration-deadline-follow-up",
+    "history": [
+      {"role": "human", "content": "劳动争议仲裁期限多久？"},
+      {"role": "ai", "content": "劳动争议申请仲裁有法定时效规定。"}
+    ],
+    "question": "超过一天还能申请吗？",
+    "expected_articles": [],
+    "expected_retrieval_terms": ["劳动争议仲裁", "时效"]
+  },
+  {
+    "id": "probation-termination-follow-up",
+    "history": [
+      {"role": "human", "content": "试用期可以随时辞退员工吗？"},
+      {"role": "ai", "content": "试用期解除劳动关系也需要满足法定条件。"}
+    ],
+    "question": "需要提前通知吗？",
+    "expected_articles": ["第二十五条"],
+    "expected_retrieval_terms": ["试用期", "解除劳动合同", "通知"]
+  },
+  {
+    "id": "rest-day-compensatory-leave-follow-up",
+    "history": [
+      {"role": "human", "content": "休息日加班工资怎么算？"},
+      {"role": "ai", "content": "不能安排补休时，应按规定支付加班工资。"}
+    ],
+    "question": "补休了还要付吗？",
+    "expected_articles": ["第四十四条"],
+    "expected_retrieval_terms": ["休息日", "补休", "加班工资"]
+  },
+  {
+    "id": "minimum-wage-location-follow-up",
+    "history": [
+      {"role": "human", "content": "最低工资有什么规定？"},
+      {"role": "ai", "content": "工资不得低于当地最低工资标准。"}
+    ],
+    "question": "上海也是这样吗？",
+    "expected_articles": ["第四十八条"],
+    "expected_retrieval_terms": ["上海", "最低工资标准"]
+  }
+]
