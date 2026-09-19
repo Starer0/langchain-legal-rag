@@ -157,6 +157,15 @@ def format_sources(docs: list[Document]) -> list[dict[str, object]]:
     return sources
 
 
+def _normalize_rag_input(value):
+    if isinstance(value, str):
+        return {
+            "question": value,
+            "retrieval_question": value,
+        }
+    return value
+
+
 def build_rag_chain(retriever, reranker, prompt, model):
     original_question_from_state = RunnableLambda(itemgetter("question"))
     retrieval_question_from_state = RunnableLambda(itemgetter("retrieval_question"))
@@ -164,7 +173,7 @@ def build_rag_chain(retriever, reranker, prompt, model):
     docs_from_state = RunnableLambda(itemgetter("docs"))
 
     state = (
-        RunnablePassthrough()
+        RunnableLambda(_normalize_rag_input)
         | RunnablePassthrough.assign(
             candidates=retrieval_question_from_state | retriever
         )

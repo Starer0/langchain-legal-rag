@@ -130,6 +130,31 @@ class RagChainWithRerankerTests(unittest.TestCase):
 
         self.assertEqual(retrieval_queries, ["试用期内劳动者工资有什么规定？"])
         self.assertIn("answer to: 那工资呢？", result["answer"])
+    def test_legacy_string_input_uses_the_original_question_for_retrieval_and_answer(self):
+        retrieval_queries = []
+
+        def retrieve(question):
+            retrieval_queries.append(question)
+            return [
+                Document(
+                    page_content="最低工资资料",
+                    metadata={"article": "第四十八条", "pages": [6]},
+                )
+            ]
+
+        chain = pipeline.build_rag_chain(
+            RunnableLambda(retrieve),
+            RunnableLambda(lambda state: state["candidates"]),
+            RunnableLambda(lambda values: values["question"]),
+            RunnableLambda(lambda value: value),
+        )
+
+        result = chain.invoke("最低工资有什么规定？")
+
+        self.assertEqual(retrieval_queries, ["最低工资有什么规定？"])
+        self.assertEqual(result["answer"], "最低工资有什么规定？")
+
+
     def test_retrieves_once_then_reuses_reranked_documents(self):
         retrieval_queries = []
         reranker_inputs = []

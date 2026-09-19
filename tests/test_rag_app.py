@@ -29,5 +29,27 @@ class CreateRagChainTests(unittest.TestCase):
         build_chain.assert_called_once()
 
 
+    @patch.dict("os.environ", {"HISTORY_TURNS": "3"}, clear=False)
+    @patch("rag_app.RetrievalQuestionRewriter")
+    @patch("rag_app.ChatOpenAI")
+    @patch("rag_app.create_rag_chain")
+    def test_creates_conversation_service_with_configured_turn_limit(
+        self,
+        create_rag_chain,
+        chat_openai,
+        rewriter,
+    ):
+        import rag_app
+
+        create_rag_chain.return_value = "shared-chain"
+
+        service = rag_app.create_conversation_service()
+
+        self.assertEqual(service.max_turns, 3)
+        self.assertEqual(service.rag_chain, "shared-chain")
+        create_rag_chain.assert_called_once()
+        rewriter.assert_called_once_with(chat_openai.return_value)
+
+
 if __name__ == "__main__":
     unittest.main()

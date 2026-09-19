@@ -4,9 +4,13 @@ from pathlib import Path
 from langchain_community.document_loaders import PyPDFLoader
 from dotenv import load_dotenv
 from langchain_chroma import Chroma
+from langchain_core.chat_history import InMemoryChatMessageHistory
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+
+from conversation import ConversationRagService
+from query_rewrite import RetrievalQuestionRewriter
 
 from rag_pipeline_articles import (
     SiliconFlowReranker,
@@ -91,3 +95,21 @@ def create_rag_chain():
 """)
 
     return build_rag_chain(retriever, reranker, prompt, model)
+
+
+def create_conversation_service():
+    """Create the CLI service with bounded in-memory conversation history."""
+    load_dotenv()
+    history_turns = int(os.getenv("HISTORY_TURNS", "4"))
+    rewrite_model = ChatOpenAI(
+        model=os.getenv("MODEL_NAME", "deepseek-chat"),
+        api_key=os.getenv("DEEPSEEK_API_KEY"),
+        base_url=os.getenv("DEEPSEEK_BASE_URL"),
+        temperature=0,
+    )
+    return ConversationRagService(
+        rag_chain=create_rag_chain(),
+        rewriter=RetrievalQuestionRewriter(rewrite_model),
+        history=InMemoryChatMessageHistory(),
+        max_turns=history_turns,
+    )
