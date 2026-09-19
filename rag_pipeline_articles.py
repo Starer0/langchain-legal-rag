@@ -158,14 +158,15 @@ def format_sources(docs: list[Document]) -> list[dict[str, object]]:
 
 
 def build_rag_chain(retriever, reranker, prompt, model):
-    question_from_state = RunnableLambda(itemgetter("question"))
+    original_question_from_state = RunnableLambda(itemgetter("question"))
+    retrieval_question_from_state = RunnableLambda(itemgetter("retrieval_question"))
     candidates_from_state = RunnableLambda(itemgetter("candidates"))
     docs_from_state = RunnableLambda(itemgetter("docs"))
 
     state = (
-        {"question": RunnablePassthrough()}
+        RunnablePassthrough()
         | RunnablePassthrough.assign(
-            candidates=question_from_state | retriever
+            candidates=retrieval_question_from_state | retriever
         )
         | RunnablePassthrough.assign(docs=reranker)
     )
@@ -173,7 +174,7 @@ def build_rag_chain(retriever, reranker, prompt, model):
     answer_chain = (
         {
             "context": docs_from_state | format_docs,
-            "question": question_from_state,
+            "question": original_question_from_state,
         }
         | prompt
         | model

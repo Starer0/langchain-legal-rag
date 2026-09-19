@@ -102,6 +102,34 @@ class SiliconFlowRerankerTests(unittest.TestCase):
 
 
 class RagChainWithRerankerTests(unittest.TestCase):
+    def test_retrieves_with_rewritten_question_and_answers_original_question(self):
+        retrieval_queries = []
+
+        def retrieve(question):
+            retrieval_queries.append(question)
+            return [
+                Document(
+                    page_content="试用期工资资料",
+                    metadata={"article": "第二十条", "pages": [2]},
+                )
+            ]
+
+        retriever = RunnableLambda(retrieve)
+        reranker = RunnableLambda(lambda state: state["candidates"])
+        prompt = RunnableLambda(
+            lambda values: f"{values['context']} | answer to: {values['question']}"
+        )
+        model = RunnableLambda(lambda value: value)
+
+        result = pipeline.build_rag_chain(
+            retriever, reranker, prompt, model
+        ).invoke({
+            "question": "那工资呢？",
+            "retrieval_question": "试用期内劳动者工资有什么规定？",
+        })
+
+        self.assertEqual(retrieval_queries, ["试用期内劳动者工资有什么规定？"])
+        self.assertIn("answer to: 那工资呢？", result["answer"])
     def test_retrieves_once_then_reuses_reranked_documents(self):
         retrieval_queries = []
         reranker_inputs = []
@@ -147,7 +175,10 @@ class RagChainWithRerankerTests(unittest.TestCase):
         except TypeError as error:
             self.fail(f"build_rag_chain 尚未接入 reranker：{error}")
 
-        result = chain.invoke("测试问题")
+        result = chain.invoke({
+            "question": "测试问题",
+            "retrieval_question": "测试问题",
+        })
 
         self.assertEqual(retrieval_queries, ["测试问题"])
         self.assertEqual(len(reranker_inputs), 1)
