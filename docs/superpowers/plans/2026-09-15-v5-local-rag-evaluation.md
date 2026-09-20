@@ -339,4 +339,3 @@ git commit -m "feat: add v5 local RAG evaluation"
 - 范围控制：没有 LangSmith、自动 LLM 评委、阈值、混合检索、对话记忆或 API 服务。
 - 接口一致：`build_case_result()` 产出的结果由 `add_assistant_review()` 写回，再被 `build_summary()` 聚合；CLI 只用这三项接口读写。
 - 测试隔离：工厂与评测测试都 mock 重型组件或读取本地 JSON，不调用真实服务。
-

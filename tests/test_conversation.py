@@ -75,5 +75,27 @@ class ConversationRagServiceTests(unittest.TestCase):
         self.assertEqual(history.messages, [])
 
 
+    def test_successful_turns_keep_stored_history_bounded(self):
+        history = InMemoryChatMessageHistory()
+        rewriter = Mock()
+        rewriter.rewrite.side_effect = ["query-1", "query-2", "query-3"]
+        chain = Mock()
+        chain.invoke.side_effect = [
+            {"answer": "answer-1"},
+            {"answer": "answer-2"},
+            {"answer": "answer-3"},
+        ]
+        service = ConversationRagService(chain, rewriter, history, max_turns=2)
+
+        service.ask("question-1")
+        service.ask("question-2")
+        service.ask("question-3")
+
+        self.assertEqual(
+            [message.content for message in history.messages],
+            ["question-2", "answer-2", "question-3", "answer-3"],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

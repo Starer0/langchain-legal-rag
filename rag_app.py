@@ -58,7 +58,7 @@ def create_rag_chain():
         )
 
     candidate_k = int(os.getenv("RETRIEVAL_K", "8"))
-    rerank_top_n = int(os.getenv("RERANK_TOP_N", "3"))
+    rerank_top_n = int(os.getenv("RERANK_TOP_N", "4"))
     use_reranker = os.getenv("USE_RERANKER", "true").lower() == "true"
     retriever = vectorstore.as_retriever(
         search_type="similarity",
@@ -74,7 +74,7 @@ def create_rag_chain():
         )
         reranker = RunnableLambda(
             lambda state: reranker_client.rerank(
-                state["question"], state["candidates"]
+                state["retrieval_question"], state["candidates"]
             )
         )
     else:

@@ -40,4 +40,7 @@ class ConversationRagService:
 
         self.history.add_user_message(original_question)
         self.history.add_ai_message(result["answer"])
+        self.history.messages[:] = recent_complete_turns(
+            self.history.messages, self.max_turns
+        )
         return result

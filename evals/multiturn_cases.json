@@ -26,7 +26,7 @@
       {"role": "ai", "content": "劳动争议申请仲裁有法定时效规定。"}
     ],
     "question": "超过一天还能申请吗？",
-    "expected_articles": [],
+    "expected_articles": ["第八十二条"],
     "expected_retrieval_terms": ["劳动争议仲裁", "时效"]
   },
   {

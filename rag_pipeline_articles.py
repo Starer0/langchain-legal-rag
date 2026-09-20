@@ -18,7 +18,7 @@ class SiliconFlowReranker:
         api_key: str | None,
         base_url: str = "https://api.siliconflow.cn/v1",
         model: str = "BAAI/bge-reranker-v2-m3",
-        top_n: int = 3,
+        top_n: int = 4,
         timeout: int = 30,
         post=requests.post,
     ):
