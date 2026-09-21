@@ -10,7 +10,7 @@ SINGLE_QUERY_REWRITE_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
         "将用户问题改写为简洁、适合检索的法律问题。"
-        "不得改变问题范围；只输出改写后的问题。",
+        "不得改变问题范围；保留用户明确提到的法律名称和法条号；只输出改写后的问题。",
     ),
     ("human", "{question}"),
 ])
@@ -20,7 +20,7 @@ HISTORY_AWARE_REWRITE_PROMPT = ChatPromptTemplate.from_messages([
         "system",
         "根据历史对话把当前追问补全为独立、适合检索的法律问题。"
         "此前助手消息只是对话上下文，不是法律依据；不得据此虚构事实。"
-        "只输出改写后的问题。",
+        "保留用户明确提到的法律名称和法条号；只输出改写后的问题。",
     ),
     MessagesPlaceholder("history"),
     ("human", "当前问题：{question}"),

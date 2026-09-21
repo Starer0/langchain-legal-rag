@@ -1,0 +1,35 @@
+[
+  {
+    "law_id": "labor_law",
+    "law_name": "中华人民共和国劳动法",
+    "aliases": ["劳动法"],
+    "source_file": "labor_law.pdf",
+    "version": "2018-12-29",
+    "effective_date": "2018-12-29",
+    "status": "现行有效",
+    "expected_articles": 107,
+    "source_url": "https://www.npc.gov.cn/c2/c30834/201905/t20190521_296651.html"
+  },
+  {
+    "law_id": "labor_contract_law",
+    "law_name": "中华人民共和国劳动合同法",
+    "aliases": ["劳动合同法"],
+    "source_file": "中华人民共和国劳动合同法_2012修正_全文.pdf",
+    "version": "2012-12-28",
+    "effective_date": "2013-07-01",
+    "status": "现行有效",
+    "expected_articles": 98,
+    "source_url": "https://www.beijing.gov.cn/zhengce/zhengcefagui/qtwj/201307/t20130701_780700.html"
+  },
+  {
+    "law_id": "labor_arbitration_law",
+    "law_name": "中华人民共和国劳动争议调解仲裁法",
+    "aliases": ["劳动争议调解仲裁法", "调解仲裁法"],
+    "source_file": "中华人民共和国劳动争议调解仲裁法_全文.pdf",
+    "version": "2007-12-29",
+    "effective_date": "2008-05-01",
+    "status": "现行有效",
+    "expected_articles": 54,
+    "source_url": "https://www.beijing.gov.cn/zhengce/zhengcefagui/qtwj/201912/t20191219_1307906.html"
+  }
+]

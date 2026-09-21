@@ -71,7 +71,7 @@ def run_case(case_id: str, run_id: str) -> Path:
         chain_result,
         {
             "retrieval_k": int(os.getenv("RETRIEVAL_K", "8")),
-            "rerank_top_n": int(os.getenv("RERANK_TOP_N", "3")),
+            "rerank_top_n": int(os.getenv("RERANK_TOP_N", "4")),
         },
         run_id,
         datetime.now(timezone.utc).isoformat(),

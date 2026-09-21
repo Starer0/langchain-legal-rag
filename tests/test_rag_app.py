@@ -3,24 +3,83 @@ from unittest.mock import patch
 
 
 class CreateRagChainTests(unittest.TestCase):
+    @patch.dict("os.environ", {"METADATA_FILTER": "true"}, clear=False)
     @patch("builtins.print")
     @patch("rag_app.build_rag_chain")
-    @patch("rag_app.Chroma")
+    @patch("rag_app.open_corpus")
     @patch("rag_app.OpenAIEmbeddings")
     @patch("rag_app.ChatOpenAI")
-    @patch("rag_app.PyPDFLoader")
+    @patch("rag_app.load_dotenv")
+    def test_retrieves_all_laws_by_default_and_filters_an_explicit_law(
+        self,
+        load_dotenv,
+        chat_openai,
+        openai_embeddings,
+        open_corpus,
+        build_chain,
+        print_output,
+    ):
+        import rag_app
+
+        law = {
+            "law_id": "labor_contract_law",
+            "law_name": "中华人民共和国劳动合同法",
+            "aliases": ["劳动合同法"],
+        }
+        open_corpus.return_value = (
+            open_corpus.return_value[0],
+            {"article_count": 98},
+            [law],
+        )
+        store = open_corpus.return_value[0]
+        build_chain.return_value = "shared-chain"
+
+        self.assertEqual(rag_app.create_rag_chain(), "shared-chain")
+
+        retriever = build_chain.call_args.args[0]
+        retriever.invoke({
+            "question": "试用期工资有什么规定？",
+            "retrieval_question": "试用期工资有什么规定？",
+        })
+        self.assertEqual(
+            store.similarity_search.call_args.kwargs["filter"],
+            {"status": "现行有效"},
+        )
+        retriever.invoke({
+            "question": "劳动合同法第20条是什么？",
+            "retrieval_question": "劳动合同法第二十条是什么？",
+        })
+        self.assertEqual(
+            store.similarity_search.call_args.kwargs["filter"],
+            {
+                "$and": [
+                    {"status": "现行有效"},
+                    {"law_id": {"$in": ["labor_contract_law"]}},
+                    {"article": "第二十条"},
+                ]
+            },
+        )
+
+    @patch("builtins.print")
+    @patch("rag_app.build_rag_chain")
+    @patch("rag_app.open_corpus")
+    @patch("rag_app.OpenAIEmbeddings")
+    @patch("rag_app.ChatOpenAI")
     @patch("rag_app.load_dotenv")
     def test_creates_shared_chain(
         self,
         load_dotenv,
-        pdf_loader,
         chat_openai,
         openai_embeddings,
-        chroma,
+        open_corpus,
         build_chain,
         print_output,
     ):
-        chroma.return_value.as_retriever.return_value = "retriever"
+        open_corpus.return_value = (
+            open_corpus.return_value[0],
+            {"article_count": 0},
+            [],
+        )
         build_chain.return_value = "shared-chain"
 
         import rag_app
@@ -54,23 +113,25 @@ class CreateRagChainTests(unittest.TestCase):
     @patch("builtins.print")
     @patch("rag_app.build_rag_chain")
     @patch("rag_app.SiliconFlowReranker")
-    @patch("rag_app.Chroma")
+    @patch("rag_app.open_corpus")
     @patch("rag_app.OpenAIEmbeddings")
     @patch("rag_app.ChatOpenAI")
-    @patch("rag_app.PyPDFLoader")
     @patch("rag_app.load_dotenv")
     def test_reranker_uses_retrieval_question_and_defaults_to_top_four(
         self,
         load_dotenv,
-        pdf_loader,
         chat_openai,
         openai_embeddings,
-        chroma,
+        open_corpus,
         reranker_client,
         build_chain,
         print_output,
     ):
-        chroma.return_value.as_retriever.return_value = "retriever"
+        open_corpus.return_value = (
+            open_corpus.return_value[0],
+            {"article_count": 0},
+            [],
+        )
         build_chain.return_value = "shared-chain"
 
         import rag_app

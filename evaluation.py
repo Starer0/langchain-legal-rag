@@ -22,6 +22,9 @@ def _serialize_documents(documents):
             "pages": deepcopy(document.get("pages")),
             "content_preview": document.get("content", "")[:PREVIEW_LENGTH],
         }
+        for field in ("law_id", "law_name", "version", "status"):
+            if field in document:
+                item[field] = document[field]
         if "rerank_score" in document:
             item["rerank_score"] = document["rerank_score"]
         serialized.append(item)
@@ -29,8 +32,17 @@ def _serialize_documents(documents):
 
 
 def _contains_all_articles(expected_articles, documents):
-    found_articles = {document.get("article") for document in documents}
-    return all(article in found_articles for article in expected_articles)
+    def contains(expected):
+        if isinstance(expected, str):
+            return any(document.get("article") == expected for document in documents)
+        if isinstance(expected, dict):
+            return any(
+                all(document.get(key) == value for key, value in expected.items())
+                for document in documents
+            )
+        raise ValueError("预期法条必须是条号字符串或法律身份对象")
+
+    return bool(expected_articles) and all(contains(item) for item in expected_articles)
 
 
 def build_case_result(case, chain_result, config, run_id, evaluated_at):

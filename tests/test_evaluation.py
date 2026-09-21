@@ -84,6 +84,35 @@ class EvaluationTests(unittest.TestCase):
         self.assertNotIn("content", result["sources"][0])
         self.assertEqual(result["sources"][0]["rerank_score"], 0.9)
 
+    def test_law_and_article_identity_distinguishes_same_numbered_articles(self):
+        case = {
+            **CASE,
+            "expected_articles": [{"law_id": "labor_contract_law", "article": "第二十条"}],
+        }
+        result = build_case_result(
+            case,
+            {
+                **CHAIN_RESULT,
+                "candidates": [{
+                    "law_id": "labor_law",
+                    "article": "第二十条",
+                    "pages": [1],
+                    "content": "错误法律的第二十条",
+                }],
+                "sources": [{
+                    "law_id": "labor_contract_law",
+                    "article": "第二十条",
+                    "pages": [1],
+                    "content": "正确法律的第二十条",
+                }],
+            },
+            {},
+            "run-1",
+            "now",
+        )
+        self.assertFalse(result["metrics"]["expected_articles_in_candidates"])
+        self.assertTrue(result["metrics"]["expected_articles_in_sources"])
+
     def test_unsupported_case_detects_refusal(self):
         case = {**CASE, "answerable": False, "expected_articles": [], "required_facts": []}
         result = build_case_result(
@@ -136,10 +165,10 @@ class EvaluationTests(unittest.TestCase):
         summary = build_summary([hit, unsupported])
 
         self.assertEqual(summary["total_cases"], 2)
-        self.assertEqual(summary["candidate_hits"], 2)
-        self.assertEqual(summary["candidate_hit_rate"], 1.0)
-        self.assertEqual(summary["source_hits"], 2)
-        self.assertEqual(summary["source_hit_rate"], 1.0)
+        self.assertEqual(summary["candidate_hits"], 1)
+        self.assertEqual(summary["candidate_hit_rate"], 0.5)
+        self.assertEqual(summary["source_hits"], 1)
+        self.assertEqual(summary["source_hit_rate"], 0.5)
         self.assertEqual(summary["unsupported_cases"], 1)
         self.assertEqual(summary["refusal_hits"], 1)
         self.assertEqual(summary["refusal_hit_rate"], 1.0)

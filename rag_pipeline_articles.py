@@ -1,3 +1,4 @@
+import json
 import re
 from operator import itemgetter
 
@@ -84,51 +85,39 @@ class SiliconFlowReranker:
 
 
 def split_by_articles(documents: list[Document]) -> list[Document]:
-    full_text = ""
-    page_ranges = []
-
-    for doc in documents:
-        start = len(full_text)
-        full_text += doc.page_content.rstrip() + "\n"
-        page_ranges.append({
-            "start": start,
-            "end": len(full_text),
-            "page": doc.metadata.get("page", 0),
-            "source": doc.metadata.get("source", "未知来源"),
-        })
-
-    matches = list(ARTICLE_PATTERN.finditer(full_text))
     articles = []
-
-    for index, match in enumerate(matches):
-        start = match.start()
-        end = (
-            matches[index + 1].start()
-            if index + 1 < len(matches)
-            else len(full_text)
-        )
-        content = full_text[start:end].strip()
-
-        if not content:
-            continue
-
-        pages = []
-        source = "未知来源"
-        for page_info in page_ranges:
-            if start < page_info["end"] and end > page_info["start"]:
-                pages.append(page_info["page"] + 1)
-                source = page_info["source"]
-
-        articles.append(Document(
-            page_content=content,
-            metadata={
-                "article": match.group(0).strip(),
-                "pages": sorted(set(pages)),
-                "source": source,
-                "chunk_type": "article",
-            },
-        ))
-
+    current = None
+    chapter = ""
+    for doc in documents:
+        page = doc.metadata.get("page", 0) + 1
+        for line in doc.page_content.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if re.match(r"^第[一二三四五六七八九十百0-9]+章", line):
+                chapter = line
+                current = None
+                continue
+            if re.match(r"^第[一二三四五六七八九十百0-9]+节", line):
+                current = None
+                continue
+            match = ARTICLE_PATTERN.match(line)
+            if match:
+                current = Document(
+                    page_content=line,
+                    metadata={
+                        "article": match.group(0).strip(),
+                        "chapter": chapter,
+                        "pages": [page],
+                        "source": doc.metadata.get("source", "未知来源"),
+                        "chunk_type": "article",
+                    },
+                )
+                articles.append(current)
+            elif current is not None:
+                current.page_content += "\n" + line
+                if page not in current.metadata["pages"]:
+                    current.metadata["pages"].append(page)
     return articles
 
 
@@ -144,10 +133,26 @@ def format_sources(docs: list[Document]) -> list[dict[str, object]]:
     for doc in docs:
         source = {
             "article": doc.metadata.get("article"),
-            "pages": doc.metadata.get("pages", []),
+            "pages": (
+                json.loads(doc.metadata["pages"])
+                if isinstance(doc.metadata.get("pages"), str)
+                else doc.metadata.get("pages", [])
+            ),
             "source": doc.metadata.get("source", "未知来源"),
             "content": doc.page_content,
         }
+        for field in (
+            "law_id",
+            "law_name",
+            "chapter",
+            "version",
+            "effective_date",
+            "status",
+            "source_file",
+            "source_url",
+        ):
+            if field in doc.metadata:
+                source[field] = doc.metadata[field]
 
         if "rerank_score" in doc.metadata:
             source["rerank_score"] = doc.metadata["rerank_score"]
@@ -166,16 +171,21 @@ def _normalize_rag_input(value):
     return value
 
 
-def build_rag_chain(retriever, reranker, prompt, model):
+def build_rag_chain(retriever, reranker, prompt, model, stateful_retriever=False):
     original_question_from_state = RunnableLambda(itemgetter("question"))
     retrieval_question_from_state = RunnableLambda(itemgetter("retrieval_question"))
     candidates_from_state = RunnableLambda(itemgetter("candidates"))
     docs_from_state = RunnableLambda(itemgetter("docs"))
 
+    candidate_retriever = (
+        retriever
+        if stateful_retriever
+        else retrieval_question_from_state | retriever
+    )
     state = (
         RunnableLambda(_normalize_rag_input)
         | RunnablePassthrough.assign(
-            candidates=retrieval_question_from_state | retriever
+            candidates=candidate_retriever
         )
         | RunnablePassthrough.assign(docs=reranker)
     )

@@ -3,4 +3,6 @@ __pycache__/
 .env
 chroma_db/
 chroma_articles_db/
+chroma_legal_db/
+evals/results/
 *.pyc

@@ -53,8 +53,17 @@ def _write_json(path: Path, data: dict) -> None:
 
 
 def _article_hit(expected_articles: list[str], documents: list[dict]) -> bool:
-    found_articles = {document.get("article") for document in documents}
-    return all(article in found_articles for article in expected_articles)
+    def contains(expected):
+        if isinstance(expected, str):
+            return any(document.get("article") == expected for document in documents)
+        if isinstance(expected, dict):
+            return any(
+                all(document.get(key) == value for key, value in expected.items())
+                for document in documents
+            )
+        raise ValueError("预期法条必须是条号字符串或法律身份对象")
+
+    return bool(expected_articles) and all(contains(item) for item in expected_articles)
 
 
 def _terms_present(retrieval_question: str, expected_terms: list[str]) -> bool:

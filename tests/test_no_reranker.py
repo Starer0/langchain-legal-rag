@@ -7,23 +7,25 @@ class NoRerankerTests(unittest.TestCase):
     @patch("builtins.print")
     @patch("rag_app.build_rag_chain")
     @patch("rag_app.SiliconFlowReranker")
-    @patch("rag_app.Chroma")
+    @patch("rag_app.open_corpus")
     @patch("rag_app.OpenAIEmbeddings")
     @patch("rag_app.ChatOpenAI")
-    @patch("rag_app.PyPDFLoader")
     @patch("rag_app.load_dotenv")
     def test_disables_reranker_when_the_flag_is_false(
         self,
         load_dotenv,
-        pdf_loader,
         chat_openai,
         openai_embeddings,
-        chroma,
+        open_corpus,
         reranker_client,
         build_chain,
         print_output,
     ):
-        chroma.return_value.as_retriever.return_value = "retriever"
+        open_corpus.return_value = (
+            open_corpus.return_value[0],
+            {"article_count": 0},
+            [],
+        )
         build_chain.return_value = "shared-chain"
 
         import rag_app
