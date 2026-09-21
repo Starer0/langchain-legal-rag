@@ -1,0 +1,53 @@
+[
+  {
+    "id": "generic-probation-wage",
+    "question": "试用期工资有什么规定？",
+    "expected_articles": [{"law_id": "labor_contract_law", "article": "第二十条"}],
+    "expected_law_ids": ["labor_contract_law"]
+  },
+  {
+    "id": "explicit-contract-law-article-20",
+    "question": "劳动合同法第20条关于试用期工资有什么规定？",
+    "expected_articles": [{"law_id": "labor_contract_law", "article": "第二十条"}],
+    "expected_law_ids": ["labor_contract_law"]
+  },
+  {
+    "id": "explicit-contract-law-trial-period",
+    "question": "《劳动合同法》第十九条对试用期是怎么规定的？",
+    "expected_articles": [{"law_id": "labor_contract_law", "article": "第十九条"}],
+    "expected_law_ids": ["labor_contract_law"]
+  },
+  {
+    "id": "generic-arbitration-limitation",
+    "question": "劳动争议申请仲裁的时效期间是多久？",
+    "expected_articles": [{"law_id": "labor_arbitration_law", "article": "第二十七条"}],
+    "expected_law_ids": ["labor_arbitration_law"]
+  },
+  {
+    "id": "explicit-arbitration-law-article-27",
+    "question": "劳动争议调解仲裁法第二十七条规定的仲裁时效是什么？",
+    "expected_articles": [{"law_id": "labor_arbitration_law", "article": "第二十七条"}],
+    "expected_law_ids": ["labor_arbitration_law"]
+  },
+  {
+    "id": "explicit-labor-law-holiday-overtime",
+    "question": "劳动法第四十四条规定法定节假日加班工资怎么计算？",
+    "expected_articles": [{"law_id": "labor_law", "article": "第四十四条"}],
+    "expected_law_ids": ["labor_law"]
+  },
+  {
+    "id": "generic-rest-day-overtime",
+    "question": "周日加班又不能补休，工资应如何支付？",
+    "expected_articles": [{"law_id": "labor_law", "article": "第四十四条"}],
+    "expected_law_ids": ["labor_law"]
+  },
+  {
+    "id": "trial-period-wage-and-arbitration",
+    "question": "单位少发我的试用期工资，我申请劳动仲裁需要注意什么？",
+    "expected_articles": [
+      {"law_id": "labor_contract_law", "article": "第二十条"},
+      {"law_id": "labor_arbitration_law", "article": "第二十七条"}
+    ],
+    "expected_law_ids": ["labor_contract_law", "labor_arbitration_law"]
+  }
+]

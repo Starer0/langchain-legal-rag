@@ -41,7 +41,7 @@ def ingest_legal_corpus():
     return manifest
 
 
-def create_rag_chain():
+def create_rag_chain(metadata_filter=None):
     load_dotenv()
     model = ChatOpenAI(
         model=os.getenv("MODEL_NAME", "deepseek-chat"),
@@ -56,7 +56,11 @@ def create_rag_chain():
     candidate_k = int(os.getenv("RETRIEVAL_K", "8"))
     rerank_top_n = int(os.getenv("RERANK_TOP_N", "4"))
     use_reranker = os.getenv("USE_RERANKER", "true").lower() == "true"
-    filter_enabled = os.getenv("METADATA_FILTER", "true").lower() == "true"
+    filter_enabled = (
+        os.getenv("METADATA_FILTER", "true").lower() == "true"
+        if metadata_filter is None
+        else metadata_filter
+    )
     retriever = RunnableLambda(
         lambda state: vectorstore.similarity_search(
             state["retrieval_question"],
