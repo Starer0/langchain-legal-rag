@@ -1,0 +1,81 @@
+[
+  {
+    "id": "one-year-contract-probation-wage",
+    "question": "我签了一年劳动合同，公司约定两个月试用期，并按转正工资的60%发工资，这样合法吗？",
+    "expected_articles": [
+      {"law_id": "labor_contract_law", "article": "第十九条"},
+      {"law_id": "labor_contract_law", "article": "第二十条"}
+    ],
+    "expected_law_ids": ["labor_contract_law"]
+  },
+  {
+    "id": "illegal-probation-compensation-limitation",
+    "question": "劳动合同约定我试用期八个月，实际已经做了六个月，我可以要求什么赔偿？如果申请仲裁，最晚什么时候提出？",
+    "expected_articles": [
+      {"law_id": "labor_contract_law", "article": "第十九条"},
+      {"law_id": "labor_contract_law", "article": "第八十三条"},
+      {"law_id": "labor_arbitration_law", "article": "第二十七条"}
+    ],
+    "expected_law_ids": ["labor_contract_law", "labor_arbitration_law"]
+  },
+  {
+    "id": "probation-dismissal-compensation-limitation",
+    "question": "公司说我在试用期不符合录用条件，把我辞退了；我能否要求经济补偿？申请仲裁的时效多久？",
+    "expected_articles": [
+      {"law_id": "labor_contract_law", "article": "第三十九条"},
+      {"law_id": "labor_contract_law", "article": "第四十六条"},
+      {"law_id": "labor_arbitration_law", "article": "第二十七条"}
+    ],
+    "expected_law_ids": ["labor_contract_law", "labor_arbitration_law"]
+  },
+  {
+    "id": "contract-expiry-compensation-limitation",
+    "question": "固定期限劳动合同到期后公司不续签，我是否有经济补偿、补偿怎么计算，申请仲裁时效多久？",
+    "expected_articles": [
+      {"law_id": "labor_contract_law", "article": "第四十六条"},
+      {"law_id": "labor_contract_law", "article": "第四十七条"},
+      {"law_id": "labor_arbitration_law", "article": "第二十七条"}
+    ],
+    "expected_law_ids": ["labor_contract_law", "labor_arbitration_law"]
+  },
+  {
+    "id": "holiday-overtime-arbitration-application",
+    "question": "国庆当天加班，公司只按正常工资发放；我想申请仲裁，加班工资标准、仲裁时效和申请书要求分别是什么？",
+    "expected_articles": [
+      {"law_id": "labor_law", "article": "第四十四条"},
+      {"law_id": "labor_arbitration_law", "article": "第二十七条"},
+      {"law_id": "labor_arbitration_law", "article": "第二十八条"}
+    ],
+    "expected_law_ids": ["labor_law", "labor_arbitration_law"]
+  },
+  {
+    "id": "rest-day-overtime-arbitration-application",
+    "question": "周日加班后单位不能安排补休，我申请仲裁时应主张什么工资标准、在何期限内提交哪些材料？",
+    "expected_articles": [
+      {"law_id": "labor_law", "article": "第四十四条"},
+      {"law_id": "labor_arbitration_law", "article": "第二十七条"},
+      {"law_id": "labor_arbitration_law", "article": "第二十八条"}
+    ],
+    "expected_law_ids": ["labor_law", "labor_arbitration_law"]
+  },
+  {
+    "id": "probation-wage-employment-status-limitation",
+    "question": "单位一直少发我的试用期工资，我仍在职；如果离职后才去仲裁，工资标准和仲裁时效分别怎么判断？",
+    "expected_articles": [
+      {"law_id": "labor_contract_law", "article": "第二十条"},
+      {"law_id": "labor_arbitration_law", "article": "第二十七条"}
+    ],
+    "expected_law_ids": ["labor_contract_law", "labor_arbitration_law"]
+  },
+  {
+    "id": "probation-wage-holiday-overtime-arbitration",
+    "question": "公司既少发我试用期工资，又在法定节假日安排加班未支付加班费；我准备申请仲裁，需要核对哪些工资标准、何时申请、申请书写什么？",
+    "expected_articles": [
+      {"law_id": "labor_contract_law", "article": "第二十条"},
+      {"law_id": "labor_law", "article": "第四十四条"},
+      {"law_id": "labor_arbitration_law", "article": "第二十七条"},
+      {"law_id": "labor_arbitration_law", "article": "第二十八条"}
+    ],
+    "expected_law_ids": ["labor_contract_law", "labor_law", "labor_arbitration_law"]
+  }
+]
