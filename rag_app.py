@@ -2,17 +2,21 @@ import os
 
 from dotenv import load_dotenv
 from langchain_core.chat_history import InMemoryChatMessageHistory
+from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 from conversation import ConversationRagService
 from legal_corpus import ingest_corpus, open_corpus, resolve_filter
+from query_decomposition import CompositeQuestionDecomposer
 from query_rewrite import RetrievalQuestionRewriter
 
 from rag_pipeline_articles import (
     SiliconFlowReranker,
+    CompositeRagChain,
     build_rag_chain,
+    format_docs,
 )
 
 
@@ -41,7 +45,7 @@ def ingest_legal_corpus():
     return manifest
 
 
-def create_rag_chain(metadata_filter=None):
+def create_rag_chain(metadata_filter=None, decompose=False):
     load_dotenv()
     model = ChatOpenAI(
         model=os.getenv("MODEL_NAME", "deepseek-chat"),
@@ -98,16 +102,31 @@ def create_rag_chain(metadata_filter=None):
 请给出清晰、谨慎的回答，并尽可能引用相关条文或页码。
 """)
 
-    return build_rag_chain(
+    single_chain = build_rag_chain(
         retriever,
         reranker,
         prompt,
         model,
         stateful_retriever=True,
     )
+    if not decompose:
+        return single_chain
+
+    answer_chain = (
+        {
+            "context": RunnableLambda(lambda state: format_docs(state["docs"])),
+            "question": RunnableLambda(lambda state: state["question"]),
+        }
+        | prompt
+        | model
+        | StrOutputParser()
+    )
+    return CompositeRagChain(
+        single_chain, retriever, reranker, answer_chain, top_n=rerank_top_n
+    )
 
 
-def create_conversation_service():
+def create_conversation_service(decompose=False):
     """Create the CLI service with bounded in-memory conversation history."""
     load_dotenv()
     history_turns = int(os.getenv("HISTORY_TURNS", "4"))
@@ -118,8 +137,9 @@ def create_conversation_service():
         temperature=0,
     )
     return ConversationRagService(
-        rag_chain=create_rag_chain(),
+        rag_chain=create_rag_chain(decompose=True) if decompose else create_rag_chain(),
         rewriter=RetrievalQuestionRewriter(rewrite_model),
         history=InMemoryChatMessageHistory(),
         max_turns=history_turns,
+        decomposer=CompositeQuestionDecomposer(rewrite_model) if decompose else None,
     )

@@ -109,6 +109,44 @@ class CreateRagChainTests(unittest.TestCase):
         create_rag_chain.assert_called_once()
         rewriter.assert_called_once_with(chat_openai.return_value)
 
+    @patch("rag_app.CompositeQuestionDecomposer")
+    @patch("rag_app.create_rag_chain")
+    @patch("rag_app.ChatOpenAI")
+    @patch("rag_app.load_dotenv")
+    def test_enables_decomposition_in_conversation_service(
+        self, load_dotenv, chat_openai, create_rag_chain, decomposer
+    ):
+        import rag_app
+
+        service = rag_app.create_conversation_service(decompose=True)
+
+        self.assertIs(service.decomposer, decomposer.return_value)
+        create_rag_chain.assert_called_once_with(decompose=True)
+
+    @patch.dict("os.environ", {"RERANK_TOP_N": "5"}, clear=False)
+    @patch("builtins.print")
+    @patch("rag_app.build_rag_chain")
+    @patch("rag_app.open_corpus")
+    @patch("rag_app.OpenAIEmbeddings")
+    @patch("rag_app.ChatOpenAI")
+    @patch("rag_app.load_dotenv")
+    def test_composite_chain_reuses_existing_retriever_and_reranker(
+        self, load_dotenv, chat_openai, embeddings, open_corpus, build_chain, print_output
+    ):
+        import rag_app
+        from rag_pipeline_articles import CompositeRagChain
+
+        open_corpus.return_value = (
+            open_corpus.return_value[0],
+            {"article_count": 259},
+            [],
+        )
+        chain = rag_app.create_rag_chain(decompose=True)
+
+        self.assertIsInstance(chain, CompositeRagChain)
+        self.assertIs(chain.single_chain, build_chain.return_value)
+        self.assertEqual(chain.top_n, 5)
+
 
     @patch("builtins.print")
     @patch("rag_app.build_rag_chain")

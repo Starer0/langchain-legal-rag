@@ -62,6 +62,39 @@ class CompositeBaselineTests(unittest.TestCase):
         self.assertEqual(summary["candidate_hits"], 2)
         self.assertEqual(summary["source_hits"], 2)
 
+    def test_records_decomposition_mode_and_subquestions(self):
+        service = _Service()
+        original_ask = service.ask
+
+        def ask_with_subquestions(question):
+            return {
+                **original_ask(question),
+                "subquestions": ["工资规定？", "仲裁时效？"],
+            }
+
+        service.ask = ask_with_subquestions
+        case = [{
+            "id": "composite",
+            "question": "工资和仲裁时效？",
+            "expected_articles": [{"law_id": "labor_law", "article": "第四十四条"}],
+            "expected_law_ids": ["labor_law"],
+        }]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            cases_path = root / "cases.json"
+            cases_path.write_text(json.dumps(case, ensure_ascii=False), encoding="utf-8")
+            with patch("run_composite_baseline.load_dotenv"):
+                run_baseline(
+                    "decomposed", service=service, cases_path=cases_path,
+                    results_dir=root, decompose=True
+                )
+            result = json.loads(
+                (root / "decomposed" / "composite.json").read_text(encoding="utf-8")
+            )
+
+        self.assertTrue(result["config"]["decomposition"])
+        self.assertEqual(result["subquestions"], ["工资规定？", "仲裁时效？"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -14,6 +14,10 @@ def run_cli(service, input_fn=input, output_fn=print):
         result = service.ask(question)
 
         output_fn(f"\n检索问题：{result['retrieval_question']}")
+        if len(result.get("subquestions", [])) > 1:
+            output_fn("拆分后的检索问题：")
+            for index, subquestion in enumerate(result["subquestions"], start=1):
+                output_fn(f"{index}. {subquestion}")
         output_fn("\nChroma 召回的候选法条（重排前）：")
         for index, candidate in enumerate(result["candidates"], start=1):
             pages = ", ".join(str(page) for page in candidate["pages"])
@@ -51,10 +55,15 @@ def main(argv=None):
         action="store_true",
         help="导入或校验 data/laws.json 中登记的法律 PDF",
     )
+    parser.add_argument(
+        "--decompose",
+        action="store_true",
+        help="对复合问题分别检索与重排，再统一回答",
+    )
     args = parser.parse_args(argv)
     if args.ingest:
         return ingest_legal_corpus()
-    return run_cli(create_conversation_service())
+    return run_cli(create_conversation_service(decompose=args.decompose))
 
 
 if __name__ == "__main__":

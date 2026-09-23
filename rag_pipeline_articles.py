@@ -162,6 +162,67 @@ def format_sources(docs: list[Document]) -> list[dict[str, object]]:
     return sources
 
 
+def _document_key(doc: Document):
+    metadata = doc.metadata
+    if metadata.get("law_id") and metadata.get("article"):
+        return (metadata["law_id"], metadata.get("version"), metadata["article"])
+    return (metadata.get("source"), metadata.get("article"), doc.page_content)
+
+
+class CompositeRagChain:
+    """Retrieve and rerank each distinct intent before one final answer."""
+
+    def __init__(self, single_chain, retriever, reranker, answer_chain, top_n):
+        if top_n < 1:
+            raise ValueError("top_n 必须大于等于 1")
+        self.single_chain = single_chain
+        self.retriever = retriever
+        self.reranker = reranker
+        self.answer_chain = answer_chain
+        self.top_n = top_n
+
+    def invoke(self, state):
+        questions = state.get("retrieval_questions", [])
+        if len(questions) < 2:
+            return self.single_chain.invoke(state)
+
+        candidates = []
+        candidate_keys = set()
+        ranked_batches = []
+        for question in questions:
+            substate = {"question": question, "retrieval_question": question}
+            batch = self.retriever.invoke(substate)
+            for doc in batch:
+                key = _document_key(doc)
+                if key not in candidate_keys:
+                    candidates.append(doc)
+                    candidate_keys.add(key)
+            ranked_batches.append(self.reranker.invoke({**substate, "candidates": batch}))
+
+        selected = []
+        selected_keys = set()
+        for rank in range(max((len(batch) for batch in ranked_batches), default=0)):
+            for batch in ranked_batches:
+                if rank >= len(batch):
+                    continue
+                doc = batch[rank]
+                key = _document_key(doc)
+                if key not in selected_keys:
+                    selected.append(doc)
+                    selected_keys.add(key)
+                if len(selected) >= self.top_n:
+                    break
+            if len(selected) >= self.top_n:
+                break
+
+        answer = self.answer_chain.invoke({"question": state["question"], "docs": selected})
+        return {
+            "answer": answer,
+            "candidates": format_sources(candidates),
+            "sources": format_sources(selected),
+        }
+
+
 def _normalize_rag_input(value):
     if isinstance(value, str):
         return {

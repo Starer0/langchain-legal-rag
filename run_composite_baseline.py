@@ -21,7 +21,10 @@ def _write_json(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def run_baseline(run_id, *, service=None, cases_path=CASES_PATH, results_dir=RESULTS_DIR):
+def run_baseline(
+    run_id, *, service=None, cases_path=CASES_PATH, results_dir=RESULTS_DIR,
+    decompose=False,
+):
     """Evaluate each case as a fresh, single-turn conversation."""
     run_directory = Path(results_dir) / run_id
     if run_directory.exists():
@@ -32,7 +35,7 @@ def run_baseline(run_id, *, service=None, cases_path=CASES_PATH, results_dir=RES
     if service is None:
         from rag_app import create_conversation_service
 
-        service = create_conversation_service()
+        service = create_conversation_service(decompose=decompose)
 
     config = {
         "retrieval_k": int(os.getenv("RETRIEVAL_K", "8")),
@@ -40,6 +43,7 @@ def run_baseline(run_id, *, service=None, cases_path=CASES_PATH, results_dir=RES
         "metadata_filter": os.getenv("METADATA_FILTER", "true").lower() == "true",
         "query_rewrite": True,
         "history_turns": 0,
+        "decomposition": decompose,
     }
     results = []
     for number, case in enumerate(cases, start=1):
@@ -54,6 +58,8 @@ def run_baseline(run_id, *, service=None, cases_path=CASES_PATH, results_dir=RES
             datetime.now(timezone.utc).isoformat(),
         )
         result["retrieval_question"] = response["retrieval_question"]
+        if "subquestions" in response:
+            result["subquestions"] = response["subquestions"]
         _write_json(run_directory / f"{case['id']}.json", result)
         results.append(result)
 
@@ -65,8 +71,9 @@ def run_baseline(run_id, *, service=None, cases_path=CASES_PATH, results_dir=RES
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-id", required=True)
+    parser.add_argument("--decompose", action="store_true")
     args = parser.parse_args(argv)
-    return run_baseline(args.run_id)
+    return run_baseline(args.run_id, decompose=args.decompose)
 
 
 if __name__ == "__main__":

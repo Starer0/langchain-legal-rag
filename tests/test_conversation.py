@@ -61,6 +61,40 @@ class ConversationRagServiceTests(unittest.TestCase):
 
         self.assertEqual(history.messages, [])
 
+    def test_composite_question_passes_independent_queries_to_chain(self):
+        history = InMemoryChatMessageHistory()
+        rewriter = Mock()
+        rewriter.rewrite.return_value = "试用期工资和仲裁时效是什么？"
+        decomposer = Mock()
+        decomposer.decompose.return_value = [
+            "试用期工资有什么规定？",
+            "劳动争议申请仲裁的时效多久？",
+        ]
+        chain = Mock()
+        chain.invoke.return_value = {"answer": "合并回答"}
+        service = ConversationRagService(
+            chain, rewriter, history, decomposer=decomposer
+        )
+
+        result = service.ask("工资少发了，仲裁有时效吗？")
+
+        decomposer.decompose.assert_called_once_with(
+            "试用期工资和仲裁时效是什么？"
+        )
+        chain.invoke.assert_called_once_with({
+            "question": "工资少发了，仲裁有时效吗？",
+            "retrieval_question": "试用期工资和仲裁时效是什么？",
+            "retrieval_questions": [
+                "试用期工资有什么规定？",
+                "劳动争议申请仲裁的时效多久？",
+            ],
+        })
+        self.assertEqual(result["subquestions"], [
+            "试用期工资有什么规定？",
+            "劳动争议申请仲裁的时效多久？",
+        ])
+        self.assertEqual(history.messages[-1].content, "合并回答")
+
     def test_blank_question_does_not_call_dependencies_or_mutate_history(self):
         history = InMemoryChatMessageHistory()
         rewriter = Mock()

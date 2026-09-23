@@ -46,6 +46,14 @@ class MainCliTests(unittest.TestCase):
         main(["--ingest"])
         ingest.assert_called_once_with()
 
+    @patch("main.run_cli")
+    @patch("main.create_conversation_service")
+    def test_main_enables_composite_question_mode(self, create_service, run_cli_mock):
+        main(["--decompose"])
+
+        create_service.assert_called_once_with(decompose=True)
+        run_cli_mock.assert_called_once_with(create_service.return_value)
+
 
 if __name__ == "__main__":
     unittest.main()

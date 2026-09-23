@@ -19,11 +19,14 @@ def recent_complete_turns(
 class ConversationRagService:
     """Use conversation history only to form a retrieval question for one turn."""
 
-    def __init__(self, rag_chain, rewriter, history, max_turns: int = 4):
+    def __init__(
+        self, rag_chain, rewriter, history, max_turns: int = 4, decomposer=None
+    ):
         self.rag_chain = rag_chain
         self.rewriter = rewriter
         self.history = history
         self.max_turns = max_turns
+        self.decomposer = decomposer
 
     def ask(self, question: str) -> dict:
         original_question = question.strip()
@@ -32,11 +35,19 @@ class ConversationRagService:
 
         history = recent_complete_turns(self.history.messages, self.max_turns)
         retrieval_question = self.rewriter.rewrite(original_question, history)
-        result = dict(self.rag_chain.invoke({
+        state = {
             "question": original_question,
             "retrieval_question": retrieval_question,
-        }))
+        }
+        subquestions = None
+        if self.decomposer is not None:
+            subquestions = self.decomposer.decompose(retrieval_question)
+            if len(subquestions) > 1:
+                state["retrieval_questions"] = subquestions
+        result = dict(self.rag_chain.invoke(state))
         result["retrieval_question"] = retrieval_question
+        if subquestions is not None:
+            result["subquestions"] = subquestions
 
         self.history.add_user_message(original_question)
         self.history.add_ai_message(result["answer"])
