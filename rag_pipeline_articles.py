@@ -220,6 +220,10 @@ class CompositeRagChain:
             "answer": answer,
             "candidates": format_sources(candidates),
             "sources": format_sources(selected),
+            "subquestion_reranks": [
+                {"question": question, "sources": format_sources(batch)}
+                for question, batch in zip(questions, ranked_batches)
+            ],
         }
 
 

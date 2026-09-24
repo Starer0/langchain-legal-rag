@@ -52,7 +52,7 @@ def build_case_result(case, chain_result, config, run_id, evaluated_at):
     expected_articles = case.get("expected_articles", [])
     answerable = case.get("answerable", False)
 
-    return {
+    result = {
         "case": deepcopy(case),
         "run_id": run_id,
         "evaluated_at": evaluated_at,
@@ -71,6 +71,20 @@ def build_case_result(case, chain_result, config, run_id, evaluated_at):
         },
         "assistant_review": None,
     }
+    if "subquestion_reranks" in chain_result:
+        reranks = [
+            {
+                "question": entry["question"],
+                "sources": _serialize_documents(entry["sources"]),
+            }
+            for entry in chain_result["subquestion_reranks"]
+        ]
+        result["subquestion_reranks"] = reranks
+        result["metrics"]["expected_articles_in_reranks"] = _contains_all_articles(
+            expected_articles,
+            [source for entry in reranks for source in entry["sources"]],
+        )
+    return result
 
 
 def add_assistant_review(result, verdict, evidence_articles, reason):
@@ -106,7 +120,7 @@ def build_summary(results):
             verdict = review["verdict"]
             verdict_counts[verdict] = verdict_counts.get(verdict, 0) + 1
 
-    return {
+    summary = {
         "total_cases": total_cases,
         "candidate_hits": candidate_hits,
         "candidate_hit_rate": candidate_hits / total_cases if total_cases else 0.0,
@@ -118,3 +132,18 @@ def build_summary(results):
         "refusal_hit_rate": refusal_hits / unsupported_cases if unsupported_cases else 0.0,
         "verdict_counts": verdict_counts,
     }
+    rerank_cases = [
+        result for result in results
+        if "expected_articles_in_reranks" in result["metrics"]
+    ]
+    if rerank_cases:
+        rerank_hits = sum(
+            result["metrics"]["expected_articles_in_reranks"]
+            for result in rerank_cases
+        )
+        summary.update({
+            "rerank_evaluated_cases": len(rerank_cases),
+            "rerank_hits": rerank_hits,
+            "rerank_hit_rate": rerank_hits / len(rerank_cases),
+        })
+    return summary

@@ -113,6 +113,50 @@ class EvaluationTests(unittest.TestCase):
         self.assertFalse(result["metrics"]["expected_articles_in_candidates"])
         self.assertTrue(result["metrics"]["expected_articles_in_sources"])
 
+    def test_rerank_stage_distinguishes_merge_loss_from_rerank_loss(self):
+        case = {
+            **CASE,
+            "expected_articles": [
+                {"law_id": "labor_law", "article": "第四十四条"},
+                {"law_id": "labor_arbitration_law", "article": "第二十七条"},
+            ],
+        }
+        overtime = {"law_id": "labor_law", "article": "第四十四条", "content": "加班工资"}
+        limitation = {
+            "law_id": "labor_arbitration_law",
+            "article": "第二十七条",
+            "content": "仲裁一年",
+        }
+        chain_result = {
+            "answer": "回答",
+            "candidates": [overtime, limitation],
+            "sources": [overtime],
+            "subquestion_reranks": [
+                {"question": "加班工资？", "sources": [overtime]},
+                {"question": "仲裁时效？", "sources": [limitation]},
+            ],
+        }
+        merged_out = build_case_result(case, chain_result, {}, "run", "now")
+        reranked_out = build_case_result(
+            case,
+            {**chain_result, "subquestion_reranks": [
+                {"question": "加班工资？", "sources": [overtime]},
+                {"question": "仲裁时效？", "sources": []},
+            ]},
+            {}, "run", "now",
+        )
+
+        self.assertTrue(merged_out["metrics"]["expected_articles_in_reranks"])
+        self.assertFalse(merged_out["metrics"]["expected_articles_in_sources"])
+        self.assertFalse(reranked_out["metrics"]["expected_articles_in_reranks"])
+        self.assertEqual(merged_out["subquestion_reranks"][1]["question"], "仲裁时效？")
+        limitation_source = merged_out["subquestion_reranks"][1]["sources"][0]
+        self.assertEqual(limitation_source["content_preview"], "仲裁一年")
+        summary = build_summary([merged_out, reranked_out])
+        self.assertEqual(summary["rerank_evaluated_cases"], 2)
+        self.assertEqual(summary["rerank_hits"], 1)
+        self.assertEqual(summary["rerank_hit_rate"], 0.5)
+
     def test_unsupported_case_detects_refusal(self):
         case = {**CASE, "answerable": False, "expected_articles": [], "required_facts": []}
         result = build_case_result(

@@ -70,6 +70,18 @@ class CompositeBaselineTests(unittest.TestCase):
             return {
                 **original_ask(question),
                 "subquestions": ["工资规定？", "仲裁时效？"],
+                "subquestion_reranks": [
+                    {
+                        "question": "工资规定？",
+                        "sources": [{
+                            "law_id": "labor_law",
+                            "article": "第四十四条",
+                            "content": "加班工资",
+                            "rerank_score": 0.9,
+                        }],
+                    },
+                    {"question": "仲裁时效？", "sources": []},
+                ],
             }
 
         service.ask = ask_with_subquestions
@@ -94,6 +106,10 @@ class CompositeBaselineTests(unittest.TestCase):
 
         self.assertTrue(result["config"]["decomposition"])
         self.assertEqual(result["subquestions"], ["工资规定？", "仲裁时效？"])
+        first_source = result["subquestion_reranks"][0]["sources"][0]
+        self.assertEqual(first_source["article"], "第四十四条")
+        self.assertEqual(first_source["rerank_score"], 0.9)
+        self.assertTrue(result["metrics"]["expected_articles_in_reranks"])
 
 
 if __name__ == "__main__":

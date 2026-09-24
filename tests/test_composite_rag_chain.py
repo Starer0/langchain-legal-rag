@@ -65,6 +65,15 @@ class CompositeRagChainTests(unittest.TestCase):
         )
         self.assertEqual(len(result["candidates"]), 3)
         self.assertEqual(result["answer"], "统一回答")
+        self.assertEqual(
+            [entry["question"] for entry in result["subquestion_reranks"]],
+            ["工资规定？", "仲裁时效？"],
+        )
+        self.assertEqual(
+            [[source["article"] for source in entry["sources"]]
+            for entry in result["subquestion_reranks"]],
+            [["第二十条", "第二十七条"], ["第二十七条", "第二十八条"]],
+        )
 
     def test_single_question_uses_existing_pipeline(self):
         original = {"answer": "原链路回答", "candidates": [], "sources": []}
