@@ -1,0 +1,78 @@
+[
+  {
+    "id": "weekly-hours-rest",
+    "question": "公司安排我每周工作六天、每天九小时，还说一周能凑够休息就行。法律对每天工作时长和每周至少休息多久分别有什么规定？",
+    "expected_articles": [
+      {"law_id": "labor_law", "article": "第三十六条"},
+      {"law_id": "labor_law", "article": "第三十八条"}
+    ],
+    "expected_law_ids": ["labor_law"]
+  },
+  {
+    "id": "overtime-limit-pay",
+    "question": "生产高峰时公司让我平日每天加班四小时、一个月累计四十小时，表示按1.5倍付钱就算合规。延长工时上限和加班工资标准分别怎么规定？",
+    "expected_articles": [
+      {"law_id": "labor_law", "article": "第四十一条"},
+      {"law_id": "labor_law", "article": "第四十四条"}
+    ],
+    "expected_law_ids": ["labor_law"]
+  },
+  {
+    "id": "unpaid-wages-quit-compensation",
+    "question": "公司连续两个月没有及时足额发工资，我想因此解除劳动合同，并要求经济补偿。这两项主张分别有什么法条依据？",
+    "expected_articles": [
+      {"law_id": "labor_contract_law", "article": "第三十八条"},
+      {"law_id": "labor_contract_law", "article": "第四十六条"}
+    ],
+    "expected_law_ids": ["labor_contract_law"]
+  },
+  {
+    "id": "arbitration-application-acceptance-award",
+    "question": "我要申请劳动仲裁：申请书应写哪些内容，仲裁委员会收到申请后几天决定是否受理，受理后一般多久作出裁决？",
+    "expected_articles": [
+      {"law_id": "labor_arbitration_law", "article": "第二十八条"},
+      {"law_id": "labor_arbitration_law", "article": "第二十九条"},
+      {"law_id": "labor_arbitration_law", "article": "第四十三条"}
+    ],
+    "expected_law_ids": ["labor_arbitration_law"]
+  },
+  {
+    "id": "unfitness-termination-compensation-arbitration",
+    "question": "我经过培训后仍不能胜任工作，公司提前三十天书面通知解除劳动合同。按这个理由解除是否应支付经济补偿？有争议时申请仲裁的时效多久？",
+    "expected_articles": [
+      {"law_id": "labor_contract_law", "article": "第四十条"},
+      {"law_id": "labor_contract_law", "article": "第四十六条"},
+      {"law_id": "labor_arbitration_law", "article": "第二十七条"}
+    ],
+    "expected_law_ids": ["labor_contract_law", "labor_arbitration_law"]
+  },
+  {
+    "id": "wage-delay-after-departure",
+    "question": "公司经常无故拖欠每月工资，我离职后才想追讨。工资应以什么形式、按什么周期支付？劳动关系终止后追讨欠薪，申请仲裁的时效如何算？",
+    "expected_articles": [
+      {"law_id": "labor_law", "article": "第五十条"},
+      {"law_id": "labor_arbitration_law", "article": "第二十七条"}
+    ],
+    "expected_law_ids": ["labor_law", "labor_arbitration_law"]
+  },
+  {
+    "id": "holiday-rest-pay-and-late-pay",
+    "question": "公司规定法定休假日没上班就不发工资，平时约定的工资也经常延期支付。休假期间的工资和按约及时发工资，各有什么规定？",
+    "expected_articles": [
+      {"law_id": "labor_law", "article": "第五十一条"},
+      {"law_id": "labor_contract_law", "article": "第三十条"}
+    ],
+    "expected_law_ids": ["labor_law", "labor_contract_law"]
+  },
+  {
+    "id": "medical-period-dismissal-remedy",
+    "question": "我在规定的医疗期内，公司以不能胜任工作为由解除劳动合同。如果属于违法解除，而我不要求继续履行，能否要求赔偿金、标准是经济补偿的几倍？申请仲裁的时效多久？",
+    "expected_articles": [
+      {"law_id": "labor_contract_law", "article": "第四十二条"},
+      {"law_id": "labor_contract_law", "article": "第四十八条"},
+      {"law_id": "labor_contract_law", "article": "第八十七条"},
+      {"law_id": "labor_arbitration_law", "article": "第二十七条"}
+    ],
+    "expected_law_ids": ["labor_contract_law", "labor_arbitration_law"]
+  }
+]

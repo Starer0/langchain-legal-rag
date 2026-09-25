@@ -72,8 +72,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--decompose", action="store_true")
+    parser.add_argument("--cases-path", type=Path, default=CASES_PATH)
     args = parser.parse_args(argv)
-    return run_baseline(args.run_id, decompose=args.decompose)
+    return run_baseline(args.run_id, decompose=args.decompose, cases_path=args.cases_path)
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from run_composite_baseline import run_baseline
+from run_composite_baseline import main, run_baseline
 
 
 class _History:
@@ -32,6 +32,19 @@ class _Service:
 
 
 class CompositeBaselineTests(unittest.TestCase):
+    def test_cli_accepts_a_frozen_holdout_case_file(self):
+        with patch("run_composite_baseline.run_baseline") as run:
+            try:
+                main(["--run-id", "holdout", "--decompose", "--cases-path", "holdout.json"])
+            except SystemExit as error:
+                self.fail(f"评测入口拒绝独立题集参数：{error}")
+
+        self.assertEqual(run.call_args.args, ("holdout",))
+        self.assertEqual(run.call_args.kwargs, {
+            "decompose": True,
+            "cases_path": Path("holdout.json"),
+        })
+
     def test_runs_each_case_as_an_independent_turn_and_records_hits(self):
         cases = [
             {
