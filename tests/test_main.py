@@ -54,6 +54,46 @@ class MainCliTests(unittest.TestCase):
         create_service.assert_called_once_with(decompose=True)
         run_cli_mock.assert_called_once_with(create_service.return_value)
 
+    @patch("main.run_cli")
+    @patch("main.create_conversation_service")
+    def test_main_enables_opt_in_profiling(self, create_service, run_cli_mock):
+        main(["--profile"])
+
+        create_service.assert_called_once_with(decompose=False, profile=True)
+        run_cli_mock.assert_called_once_with(create_service.return_value)
+
+    def test_cli_prints_profiled_stage_times_and_call_counts(self):
+        service = Mock()
+        service.ask.return_value = {
+            "retrieval_question": "试用期工资规定？",
+            "answer": "回答",
+            "candidates": [],
+            "sources": [],
+            "performance": {
+                "total_ms": 123.45,
+                "model_calls": 2,
+                "reranker_calls": 1,
+                "stages": {
+                    "rewrite": {"calls": 1, "duration_ms": 30.0},
+                    "chroma": {"calls": 1, "duration_ms": 10.0},
+                    "rerank": {"calls": 1, "duration_ms": 20.0},
+                    "answer": {"calls": 1, "duration_ms": 60.0},
+                },
+            },
+        }
+        answers = iter(["试用期工资？", "q"])
+        output = []
+
+        run_cli(service, input_fn=lambda _: next(answers), output_fn=output.append)
+
+        display = "\n".join(output)
+        self.assertIn("总耗时：123.45 ms", display)
+        self.assertIn("改写：30.00 ms", display)
+        self.assertIn("Chroma：10.00 ms", display)
+        self.assertIn("Reranker：20.00 ms", display)
+        self.assertIn("回答：60.00 ms", display)
+        self.assertIn("模型调用：2 次", display)
+
 
 if __name__ == "__main__":
     unittest.main()

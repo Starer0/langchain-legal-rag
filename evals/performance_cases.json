@@ -1,0 +1,26 @@
+[
+  {
+    "id": "single-probation-wage",
+    "question": "试用期工资有什么规定？",
+    "expected_articles": [
+      {"law_id": "labor_contract_law", "article": "第二十条"}
+    ]
+  },
+  {
+    "id": "two-law-wage-arbitration",
+    "question": "单位少发我的试用期工资，我申请劳动仲裁需要注意什么？",
+    "expected_articles": [
+      {"law_id": "labor_contract_law", "article": "第二十条"},
+      {"law_id": "labor_arbitration_law", "article": "第二十七条"}
+    ]
+  },
+  {
+    "id": "three-point-holiday-overtime",
+    "question": "国庆当天加班，公司只按正常工资发放；我想申请仲裁，加班工资标准、仲裁时效和申请书要求分别是什么？",
+    "expected_articles": [
+      {"law_id": "labor_law", "article": "第四十四条"},
+      {"law_id": "labor_arbitration_law", "article": "第二十七条"},
+      {"law_id": "labor_arbitration_law", "article": "第二十八条"}
+    ]
+  }
+]

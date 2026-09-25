@@ -46,6 +46,27 @@ def run_cli(service, input_fn=input, output_fn=print):
                 f"{source['article']}，PDF 第 {pages} 页"
                 f"{score_text}：{summary}"
             )
+        performance = result.get("performance")
+        if performance:
+            output_fn(f"\n总耗时：{performance['total_ms']:.2f} ms")
+            labels = {
+                "rewrite": "改写",
+                "decompose": "拆分",
+                "chroma": "Chroma",
+                "rerank": "Reranker",
+                "answer": "回答",
+            }
+            for stage, label in labels.items():
+                if stage in performance["stages"]:
+                    item = performance["stages"][stage]
+                    output_fn(
+                        f"{label}：{item['duration_ms']:.2f} ms"
+                        f"（{item['calls']} 次）"
+                    )
+            output_fn(
+                f"模型调用：{performance['model_calls']} 次；"
+                f"Reranker 调用：{performance['reranker_calls']} 次"
+            )
 
 
 def main(argv=None):
@@ -60,10 +81,18 @@ def main(argv=None):
         action="store_true",
         help="对复合问题分别检索与重排，再统一回答",
     )
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+        help="显示本轮各阶段耗时和调用次数",
+    )
     args = parser.parse_args(argv)
     if args.ingest:
         return ingest_legal_corpus()
-    return run_cli(create_conversation_service(decompose=args.decompose))
+    service_options = {"decompose": args.decompose}
+    if args.profile:
+        service_options["profile"] = True
+    return run_cli(create_conversation_service(**service_options))
 
 
 if __name__ == "__main__":

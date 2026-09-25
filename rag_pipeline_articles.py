@@ -7,6 +7,7 @@ from langchain_core.documents import Document
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 
+from performance import measure
 
 ARTICLE_PATTERN = re.compile(
     r"(?m)^\s*第[一二三四五六七八九十百千万零〇0-9]+条"
@@ -191,6 +192,8 @@ class CompositeRagChain:
         ranked_batches = []
         for question in questions:
             substate = {"question": question, "retrieval_question": question}
+            if "_profile" in state:
+                substate["_profile"] = state["_profile"]
             batch = self.retriever.invoke(substate)
             for doc in batch:
                 key = _document_key(doc)
@@ -215,7 +218,10 @@ class CompositeRagChain:
             if len(selected) >= self.top_n:
                 break
 
-        answer = self.answer_chain.invoke({"question": state["question"], "docs": selected})
+        answer_state = {"question": state["question"], "docs": selected}
+        answer = measure(
+            state, "answer", lambda: self.answer_chain.invoke(answer_state)
+        )
         return {
             "answer": answer,
             "candidates": format_sources(candidates),
@@ -236,7 +242,9 @@ def _normalize_rag_input(value):
     return value
 
 
-def build_rag_chain(retriever, reranker, prompt, model, stateful_retriever=False):
+def build_rag_chain(
+    retriever, reranker, prompt, model, stateful_retriever=False, profile=False
+):
     original_question_from_state = RunnableLambda(itemgetter("question"))
     retrieval_question_from_state = RunnableLambda(itemgetter("retrieval_question"))
     candidates_from_state = RunnableLambda(itemgetter("candidates"))
@@ -265,8 +273,14 @@ def build_rag_chain(retriever, reranker, prompt, model, stateful_retriever=False
         | StrOutputParser()
     )
 
+    answer_step = (
+        RunnableLambda(
+            lambda value: measure(value, "answer", lambda: answer_chain.invoke(value))
+        )
+        if profile else answer_chain
+    )
     return state | {
-        "answer": answer_chain,
+        "answer": answer_step,
         "candidates": candidates_from_state | format_sources,
         "sources": docs_from_state | format_sources,
     }

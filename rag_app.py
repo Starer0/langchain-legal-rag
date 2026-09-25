@@ -9,6 +9,7 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 from conversation import ConversationRagService
 from legal_corpus import ingest_corpus, open_corpus, resolve_filter
+from performance import measure
 from query_decomposition import CompositeQuestionDecomposer
 from query_rewrite import RetrievalQuestionRewriter
 
@@ -45,7 +46,7 @@ def ingest_legal_corpus():
     return manifest
 
 
-def create_rag_chain(metadata_filter=None, decompose=False):
+def create_rag_chain(metadata_filter=None, decompose=False, profile=False):
     load_dotenv()
     model = ChatOpenAI(
         model=os.getenv("MODEL_NAME", "deepseek-chat"),
@@ -66,10 +67,13 @@ def create_rag_chain(metadata_filter=None, decompose=False):
         else metadata_filter
     )
     retriever = RunnableLambda(
-        lambda state: vectorstore.similarity_search(
-            state["retrieval_question"],
-            k=candidate_k,
-            filter=resolve_filter(state, laws, enabled=filter_enabled),
+        lambda state: measure(
+            state, "chroma",
+            lambda: vectorstore.similarity_search(
+                state["retrieval_question"],
+                k=candidate_k,
+                filter=resolve_filter(state, laws, enabled=filter_enabled),
+            ),
         )
     )
 
@@ -80,11 +84,14 @@ def create_rag_chain(metadata_filter=None, decompose=False):
             model=os.getenv("SILICONFLOW_RERANK_MODEL", "BAAI/bge-reranker-v2-m3"),
             top_n=rerank_top_n,
         )
-        reranker = RunnableLambda(
-            lambda state: reranker_client.rerank(
+        def rerank(state):
+            operation = lambda: reranker_client.rerank(
                 state["retrieval_question"], state["candidates"]
             )
-        )
+            # No candidates means no remote Reranker request.
+            return measure(state, "rerank", operation) if state["candidates"] else operation()
+
+        reranker = RunnableLambda(rerank)
     else:
         reranker = RunnableLambda(lambda state: state["candidates"])
     prompt = ChatPromptTemplate.from_template("""
@@ -108,6 +115,7 @@ def create_rag_chain(metadata_filter=None, decompose=False):
         prompt,
         model,
         stateful_retriever=True,
+        **({"profile": True} if profile else {}),
     )
     if not decompose:
         return single_chain
@@ -126,7 +134,7 @@ def create_rag_chain(metadata_filter=None, decompose=False):
     )
 
 
-def create_conversation_service(decompose=False):
+def create_conversation_service(decompose=False, profile=False):
     """Create the CLI service with bounded in-memory conversation history."""
     load_dotenv()
     history_turns = int(os.getenv("HISTORY_TURNS", "4"))
@@ -136,10 +144,14 @@ def create_conversation_service(decompose=False):
         base_url=os.getenv("DEEPSEEK_BASE_URL"),
         temperature=0,
     )
+    chain_options = {"decompose": True} if decompose else {}
+    if profile:
+        chain_options["profile"] = True
     return ConversationRagService(
-        rag_chain=create_rag_chain(decompose=True) if decompose else create_rag_chain(),
+        rag_chain=create_rag_chain(**chain_options),
         rewriter=RetrievalQuestionRewriter(rewrite_model),
         history=InMemoryChatMessageHistory(),
         max_turns=history_turns,
         decomposer=CompositeQuestionDecomposer(rewrite_model) if decompose else None,
+        profile=profile,
     )
