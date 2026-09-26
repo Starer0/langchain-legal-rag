@@ -18,6 +18,12 @@ let isGenerating = false;
 const conversationList = document.querySelector("#conversation-list");
 const conversationTitle = document.querySelector("#current-conversation-title");
 const newConversationButton = document.querySelector("#new-conversation");
+const renameDialog = document.querySelector("#rename-dialog");
+const renameForm = document.querySelector("#rename-form");
+const renameInput = document.querySelector("#rename-input");
+const renameError = document.querySelector("#rename-error");
+const renameCancelButton = document.querySelector("#rename-cancel");
+let renamingConversation = null;
 
 function setStatus(message, isError = false) {
   statusArea.textContent = message;
@@ -143,16 +149,16 @@ function renderConversations() {
   conversationList.replaceChildren();
   for (const conversation of conversations) {
     const item = document.createElement("div"); item.className = `conversation-item${conversation.id === currentConversationId ? " active" : ""}`;
-    const title = document.createElement("button"); title.type = "button"; title.className = "conversation-title"; title.textContent = conversation.title; title.title = conversation.title; title.disabled = isGenerating; title.onclick = () => selectConversation(conversation.id);
-    const rename = document.createElement("button"); rename.type = "button"; rename.className = "conversation-action"; rename.textContent = "改名"; rename.disabled = isGenerating; rename.onclick = () => renameConversation(conversation);
-    const remove = document.createElement("button"); remove.type = "button"; remove.className = "conversation-action"; remove.textContent = "删除"; remove.disabled = isGenerating; remove.onclick = () => deleteConversation(conversation.id);
-    item.append(title, rename, remove); conversationList.append(item);
+    const title = document.createElement("button"); title.type = "button"; title.className = "conversation-title"; title.textContent = conversation.title; title.title = "双击重命名"; title.disabled = isGenerating; title.onclick = () => selectConversation(conversation.id); title.ondblclick = (event) => { event.preventDefault(); openRenameDialog(conversation); };
+    const remove = document.createElement("button"); remove.type = "button"; remove.className = "conversation-action delete-conversation"; remove.setAttribute("aria-label", `删除聊天：${conversation.title}`); remove.title = "删除聊天"; remove.disabled = isGenerating; remove.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6m4-6v6M9 7l1-2h4l1 2m-9 0 1 13h10l1-13" /></svg>'; remove.onclick = () => deleteConversation(conversation.id);
+    item.append(title, remove); conversationList.append(item);
   }
 }
 async function loadConversations() { const response = await fetch("/api/conversations"); if (!response.ok) throw new Error("无法读取对话列表"); conversations = (await response.json()).conversations; }
 async function selectConversation(id) { if (isGenerating || id === currentConversationId) return; currentConversationId = id; const current = conversations.find((item) => item.id === id); conversationTitle.textContent = current.title; messageLog.replaceChildren(); await loadHistory(); renderConversations(); }
 async function createConversation() { if (isGenerating) return; const response = await fetch("/api/conversations", {method:"POST"}); if (!response.ok) return setStatus("无法新建对话，请稍后重试。", true); const created = await response.json(); await loadConversations(); await selectConversation(created.id); questionInput.focus(); }
-async function renameConversation(conversation) { if (isGenerating) return; const title = window.prompt("对话标题", conversation.title); if (title === null) return; const response = await fetch(`/api/conversations/${conversation.id}`, {method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({title})}); if (!response.ok) return setStatus("标题需要 1 到 80 个字符。", true); await loadConversations(); const current = conversations.find((item) => item.id === currentConversationId); conversationTitle.textContent = current?.title || "新对话"; renderConversations(); }
+function openRenameDialog(conversation) { if (isGenerating) return; renamingConversation = conversation; renameInput.value = conversation.title; renameError.textContent = ""; renameDialog.showModal(); renameInput.focus(); renameInput.select(); }
+async function renameConversation() { const title = renameInput.value.trim(); if (!renamingConversation || !title) { renameError.textContent = "请输入 1 到 80 个字符。"; return; } const response = await fetch(`/api/conversations/${renamingConversation.id}`, {method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({title})}); if (!response.ok) { renameError.textContent = "标题需要 1 到 80 个字符。"; return; } renameDialog.close(); renamingConversation = null; await loadConversations(); const current = conversations.find((item) => item.id === currentConversationId); conversationTitle.textContent = current?.title || "新对话"; renderConversations(); }
 async function deleteConversation(id) { if (isGenerating || !window.confirm("删除后无法恢复这段对话，确定删除吗？")) return; const response = await fetch(`/api/conversations/${id}`, {method:"DELETE"}); if (!response.ok) return setStatus("无法删除对话，请稍后重试。", true); await loadConversations(); currentConversationId = null; if (conversations.length) await selectConversation(conversations[0].id); else await createConversation(); }
 
 form.addEventListener("submit", async (event) => {
@@ -183,4 +189,6 @@ questionInput.addEventListener("keydown", (event) => {
 });
 
 newConversationButton.addEventListener("click", createConversation);
+renameForm.addEventListener("submit", async (event) => { event.preventDefault(); await renameConversation(); });
+renameCancelButton.addEventListener("click", () => { renameDialog.close(); renamingConversation = null; });
 (async () => { await loadConversations(); if (!conversations.length) await createConversation(); else await selectConversation(conversations[0].id); })();

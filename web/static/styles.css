@@ -26,8 +26,10 @@ body { margin: 0; min-width: 320px; }
 .conversation-item { display: flex; align-items: center; gap: 5px; width: 100%; border: 0; background: transparent; color: var(--color-foreground); border-radius: 8px; padding: 10px; text-align: left; cursor: pointer; }
 .conversation-item.active { background: var(--color-muted); color: var(--color-primary-dark); font-weight: 700; }
 .conversation-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-.conversation-action { min-width: 28px; min-height: 28px; padding: 2px; background: transparent; color: var(--color-muted-foreground); }
-.conversation-action:hover { background: var(--color-border); color: var(--color-foreground); transform: none; }
+.conversation-action { display: grid; place-items: center; width: 32px; min-width: 32px; min-height: 32px; padding: 6px; background: transparent; color: var(--color-muted-foreground); opacity: 0; pointer-events: none; }
+.conversation-action svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+.conversation-item:hover .conversation-action, .conversation-item:focus-within .conversation-action { opacity: 1; pointer-events: auto; }
+.conversation-action:hover { background: #fee2e2; color: var(--color-danger); transform: none; }
 
 button, textarea { font: inherit; }
 
@@ -80,6 +82,17 @@ button { min-height: 44px; cursor: pointer; border: 0; border-radius: 10px; padd
 button:hover:not(:disabled) { background: var(--color-primary-dark); transform: translateY(-1px); }
 button:disabled { cursor: wait; opacity: .65; }
 .button-hint { margin-left: 6px; border: 1px solid rgb(255 255 255 / 50%); border-radius: 4px; padding: 1px 4px; font-size: .7rem; }
+
+.rename-dialog { width: min(420px, calc(100% - 32px)); border: 1px solid var(--color-border); border-radius: 14px; padding: 24px; color: var(--color-foreground); box-shadow: var(--shadow); }
+.rename-dialog::backdrop { background: rgb(15 23 42 / 35%); }
+.rename-dialog h2 { margin: 0 0 20px; color: var(--color-primary-dark); }
+.rename-dialog label { display: block; margin-bottom: 8px; font-weight: 700; }
+.rename-dialog input { width: 100%; border: 1px solid var(--color-border); border-radius: 8px; padding: 10px 12px; font: inherit; }
+.rename-dialog input:focus { outline: 3px solid var(--color-primary); outline-offset: 2px; }
+.dialog-error { min-height: 1.3em; margin: 8px 0 0; color: var(--color-danger); font-size: .9rem; }
+.dialog-actions { display: flex; justify-content: end; gap: 10px; margin-top: 18px; }
+.secondary-button { background: var(--color-muted); color: var(--color-foreground); }
+.secondary-button:hover:not(:disabled) { background: var(--color-border); }
 
 .skip-link { position: fixed; left: 12px; top: -48px; z-index: 2; padding: 10px; background: #fff; color: var(--color-primary); }
 .skip-link:focus { top: 12px; }

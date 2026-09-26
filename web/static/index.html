@@ -55,6 +55,18 @@
         <ul></ul>
       </details>
     </template>
+    <dialog id="rename-dialog" class="rename-dialog" aria-labelledby="rename-dialog-title">
+      <form id="rename-form" method="dialog">
+        <h2 id="rename-dialog-title">重命名聊天</h2>
+        <label for="rename-input">聊天名称</label>
+        <input id="rename-input" name="title" type="text" maxlength="80" required>
+        <p id="rename-error" class="dialog-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button id="rename-cancel" type="button" class="secondary-button">取消</button>
+          <button type="submit">保存</button>
+        </div>
+      </form>
+    </dialog>
     <script type="module" src="/static/app.js"></script>
   </body>
 </html>
