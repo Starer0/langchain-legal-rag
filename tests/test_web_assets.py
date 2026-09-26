@@ -35,6 +35,12 @@ class WebAssetTests(unittest.TestCase):
         self.assertIn("#chat-form", self.client.get("/static/styles.css").text)
         self.assertIn("/api/chat", self.client.get("/static/app.js").text)
 
+    def test_markdown_module_is_served_as_javascript(self):
+        response = self.client.get("/static/markdown.mjs")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["content-type"], "application/javascript")
+
 
 if __name__ == "__main__":
     unittest.main()

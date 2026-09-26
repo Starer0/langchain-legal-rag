@@ -1,6 +1,7 @@
 """FastAPI transport for the legal RAG web chat."""
 
 import json
+import mimetypes
 import os
 from _thread import LockType
 from contextlib import asynccontextmanager
@@ -19,6 +20,8 @@ from web_storage import SQLiteConversationStore
 
 COOKIE_NAME = "legal_rag_session"
 SAFE_ERROR_MESSAGE = "暂时无法完成回答，请稍后重试。"
+
+mimetypes.add_type("application/javascript", ".mjs")
 
 
 class ChatRequest(BaseModel):
