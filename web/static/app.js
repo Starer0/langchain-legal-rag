@@ -25,7 +25,7 @@ function appendMessage(role, content = "") {
   label.textContent = role === "user" ? "你" : "法律法规助手";
   const body = document.createElement("div");
   body.className = "message-content";
-  body.textContent = content;
+  renderMarkdown(body, content);
   article.append(label, body);
   messageLog.append(article);
   article.scrollIntoView({ block: "end", behavior: "smooth" });
@@ -74,6 +74,7 @@ async function receiveStream(response, onEvent) {
 async function sendQuestion(question) {
   const pendingUser = appendMessage("user", question);
   let assistantMessage = null;
+  let streamedAnswer = "";
   try {
     const response = await fetch("/api/chat", {
       method: "POST",
@@ -85,10 +86,12 @@ async function sendQuestion(question) {
       if (event === "status") setStatus(stageLabels[data.stage] || "正在处理…");
       if (event === "delta") {
         assistantMessage ||= appendMessage("assistant");
-        assistantMessage.querySelector(".message-content").textContent += data.text;
+        streamedAnswer += data.text;
+        renderMarkdown(assistantMessage.querySelector(".message-content"), streamedAnswer);
       }
       if (event === "done") {
         if (!assistantMessage) assistantMessage = appendMessage("assistant", data.answer);
+        else renderMarkdown(assistantMessage.querySelector(".message-content"), data.answer);
         addSources(assistantMessage, data.sources);
         setStatus("");
       }
@@ -132,3 +135,4 @@ questionInput.addEventListener("keydown", (event) => {
 });
 
 loadHistory();
+import { renderMarkdown } from "/static/markdown.mjs";

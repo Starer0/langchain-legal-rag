@@ -34,14 +34,24 @@ h2 { margin: 0 0 10px; font-size: 1.35rem; }
 
 .notice { margin: 20px 0; border-left: 4px solid var(--color-accent); padding: 12px 16px; background: #fff7ed; color: #7c2d12; line-height: 1.55; }
 
-.message-log { display: grid; gap: 18px; min-height: 350px; padding: 12px 0 24px; }
+.message-log { display: grid; align-items: start; gap: 18px; min-height: 350px; padding: 12px 0 24px; }
 .welcome-card, .message { border: 1px solid var(--color-border); border-radius: 12px; padding: 20px; background: var(--color-surface); box-shadow: var(--shadow); }
 .welcome-card p:last-child { margin-bottom: 0; color: var(--color-muted-foreground); line-height: 1.7; }
-.message { max-width: min(760px, 94%); line-height: 1.75; white-space: pre-wrap; }
+.message { align-self: start; max-width: min(760px, 94%); line-height: 1.75; overflow-wrap: anywhere; }
 .message.user { justify-self: end; border-color: var(--color-primary); background: var(--color-primary); color: #fff; box-shadow: none; }
 .message.assistant { justify-self: start; }
 .message-label { display: block; margin-bottom: 8px; font-size: .8rem; font-weight: 700; color: var(--color-muted-foreground); }
 .message.user .message-label { color: #dbeafe; }
+.message-content > :first-child { margin-top: 0; }
+.message-content > :last-child { margin-bottom: 0; }
+.message-content p { margin: 0 0 16px; }
+.message-content h3, .message-content h4, .message-content h5 { margin: 20px 0 8px; color: var(--color-primary-dark); font-family: Georgia, "Noto Serif SC", serif; line-height: 1.4; }
+.message-content h3 { font-size: 1.12rem; }
+.message-content h4, .message-content h5 { font-size: 1rem; }
+.message-content ul, .message-content ol { margin: 8px 0 16px; padding-left: 24px; }
+.message-content li { margin: 6px 0; padding-left: 3px; }
+.message-content blockquote { margin: 16px 0; border-left: 3px solid var(--color-accent); padding: 8px 12px; background: #fff7ed; color: #7c2d12; }
+.message.user .message-content h3, .message.user .message-content h4, .message.user .message-content h5 { color: #fff; }
 
 .sources { margin-top: 16px; border-top: 1px solid var(--color-border); padding-top: 12px; color: var(--color-muted-foreground); }
 .sources summary { cursor: pointer; color: var(--color-primary); font-weight: 700; }
