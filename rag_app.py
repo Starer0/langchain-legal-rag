@@ -19,6 +19,7 @@ from rag_pipeline_articles import (
     build_rag_chain,
     format_docs,
 )
+from web_rag import StreamingRagTurn
 
 
 def _create_embeddings():
@@ -154,4 +155,78 @@ def create_conversation_service(decompose=False, profile=False):
         max_turns=history_turns,
         decomposer=CompositeQuestionDecomposer(rewrite_model) if decompose else None,
         profile=profile,
+    )
+
+
+def create_web_rag_turn():
+    """Create the shared, single-query RAG turn used by the web application."""
+    load_dotenv()
+    history_turns = int(os.getenv("HISTORY_TURNS", "4"))
+    model_options = {
+        "model": os.getenv("MODEL_NAME", "deepseek-chat"),
+        "api_key": os.getenv("DEEPSEEK_API_KEY"),
+        "base_url": os.getenv("DEEPSEEK_BASE_URL"),
+        "temperature": 0,
+    }
+    answer_model = ChatOpenAI(**model_options)
+    rewrite_model = ChatOpenAI(**model_options)
+    embeddings = _create_embeddings()
+    vectorstore, manifest, laws = open_corpus(embeddings, _embedding_config())
+    print(f"加载法律知识库：{manifest['article_count']} 条，{len(laws)} 部法律")
+
+    candidate_k = int(os.getenv("RETRIEVAL_K", "8"))
+    rerank_top_n = int(os.getenv("RERANK_TOP_N", "4"))
+    filter_enabled = os.getenv("METADATA_FILTER", "true").lower() == "true"
+    retriever = RunnableLambda(
+        lambda state: measure(
+            state,
+            "chroma",
+            lambda: vectorstore.similarity_search(
+                state["retrieval_question"],
+                k=candidate_k,
+                filter=resolve_filter(state, laws, enabled=filter_enabled),
+            ),
+        )
+    )
+
+    use_reranker = os.getenv("USE_RERANKER", "true").lower() == "true"
+    if use_reranker:
+        reranker_client = SiliconFlowReranker(
+            api_key=os.getenv("SILICONFLOW_API_KEY"),
+            base_url=os.getenv("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1"),
+            model=os.getenv("SILICONFLOW_RERANK_MODEL", "BAAI/bge-reranker-v2-m3"),
+            top_n=rerank_top_n,
+        )
+
+        def rerank(state):
+            operation = lambda: reranker_client.rerank(
+                state["retrieval_question"], state["candidates"]
+            )
+            return measure(state, "rerank", operation) if state["candidates"] else operation()
+
+        reranker = RunnableLambda(rerank)
+    else:
+        reranker = RunnableLambda(lambda state: state["candidates"])
+
+    prompt = ChatPromptTemplate.from_template("""
+你是一名劳动法律法规知识问答助手。
+
+请严格根据参考资料回答问题。
+如果资料中没有足够依据，请明确说“资料中没有足够依据”，不要自行编造。
+
+参考资料：
+{context}
+
+用户问题：
+{question}
+
+请给出清晰、谨慎的回答，并尽可能引用相关条文或页码。
+""")
+    return StreamingRagTurn(
+        rewriter=RetrievalQuestionRewriter(rewrite_model),
+        retriever=retriever,
+        reranker=reranker,
+        prompt=prompt,
+        model=answer_model,
+        history_turns=history_turns,
     )

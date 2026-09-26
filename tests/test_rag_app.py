@@ -109,6 +109,32 @@ class CreateRagChainTests(unittest.TestCase):
         create_rag_chain.assert_called_once()
         rewriter.assert_called_once_with(chat_openai.return_value)
 
+    @patch.dict("os.environ", {"HISTORY_TURNS": "3"}, clear=False)
+    @patch("builtins.print")
+    @patch("rag_app.StreamingRagTurn")
+    @patch("rag_app.SiliconFlowReranker")
+    @patch("rag_app.open_corpus")
+    @patch("rag_app.OpenAIEmbeddings")
+    @patch("rag_app.ChatOpenAI")
+    @patch("rag_app.load_dotenv")
+    def test_creates_single_query_streaming_turn_with_configured_history_limit(
+        self, load_dotenv, chat_openai, embeddings, open_corpus, reranker,
+        streaming_turn, print_output,
+    ):
+        import rag_app
+
+        open_corpus.return_value = (open_corpus.return_value[0], {"article_count": 1}, [])
+
+        result = rag_app.create_web_rag_turn()
+
+        self.assertEqual(result, streaming_turn.return_value)
+        self.assertEqual(streaming_turn.call_args.kwargs["history_turns"], 3)
+        self.assertIn("rewriter", streaming_turn.call_args.kwargs)
+        self.assertIn("retriever", streaming_turn.call_args.kwargs)
+        self.assertIn("reranker", streaming_turn.call_args.kwargs)
+        self.assertIn("prompt", streaming_turn.call_args.kwargs)
+        self.assertIn("model", streaming_turn.call_args.kwargs)
+
     @patch("rag_app.CompositeQuestionDecomposer")
     @patch("rag_app.create_rag_chain")
     @patch("rag_app.ChatOpenAI")
