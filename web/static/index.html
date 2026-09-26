@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="基于已收录法律法规的智能问答工具">
+    <title>法律法规问答</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#question">跳至提问</a>
+    <div class="app-shell">
+      <header class="site-header">
+        <div>
+          <p class="eyebrow">LEGAL RAG</p>
+          <h1>法律法规问答</h1>
+        </div>
+        <p class="header-note">基于已收录法规检索生成</p>
+      </header>
+
+      <section class="notice" aria-label="使用说明">
+        <strong>使用提示：</strong>回答仅供法律信息参考，不构成针对个案的法律意见。
+      </section>
+
+      <main id="message-log" class="message-log" aria-live="polite" aria-label="对话记录">
+        <section class="welcome-card" id="welcome-card">
+          <p class="eyebrow">开始咨询</p>
+          <h2>请输入一条劳动法律法规问题</h2>
+          <p>系统会结合当前对话，将追问改写为适合检索的问题，再提供相关法条来源。</p>
+        </section>
+      </main>
+
+      <section id="status" class="status" role="status" aria-live="polite"></section>
+
+      <form id="chat-form" class="chat-form">
+        <label for="question">你的问题</label>
+        <div class="composer">
+          <textarea id="question" name="question" rows="3" maxlength="2000" placeholder="例如：试用期最长多久？" required></textarea>
+          <button id="send-button" type="submit">
+            <span>发送</span>
+            <span class="button-hint" aria-hidden="true">Enter</span>
+          </button>
+        </div>
+        <p class="form-hint">Enter 发送，Shift + Enter 换行</p>
+      </form>
+    </div>
+    <template id="source-template">
+      <details class="sources">
+        <summary>查看参考来源</summary>
+        <ul></ul>
+      </details>
+    </template>
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>

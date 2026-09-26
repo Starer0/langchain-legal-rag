@@ -3,9 +3,11 @@
 import json
 from _thread import LockType
 from threading import Lock
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import BaseModel
 
@@ -21,6 +23,8 @@ class ChatRequest(BaseModel):
 def create_app(store, rag_turn, secure_cookies: bool = False) -> FastAPI:
     """Create a web app whose state is isolated by an opaque browser cookie."""
     app = FastAPI()
+    static_directory = Path(__file__).parent / "web" / "static"
+    app.mount("/static", StaticFiles(directory=static_directory), name="static")
     locks: dict[str, LockType] = {}
     locks_guard = Lock()
 
@@ -41,6 +45,14 @@ def create_app(store, rag_turn, secure_cookies: bool = False) -> FastAPI:
         with locks_guard:
             lock = locks.setdefault(session_id, Lock())
         return lock if lock.acquire(blocking=False) else None
+
+    @app.get("/")
+    def page(request: Request):
+        session_id, is_new = session_for(request)
+        response = FileResponse(static_directory / "index.html")
+        if is_new:
+            set_session_cookie(response, session_id)
+        return response
 
     @app.get("/api/history")
     def history(request: Request):

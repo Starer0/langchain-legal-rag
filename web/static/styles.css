@@ -1,0 +1,75 @@
+:root {
+  --color-primary: #1e3a8a;
+  --color-primary-dark: #172554;
+  --color-accent: #b45309;
+  --color-background: #f8fafc;
+  --color-surface: #ffffff;
+  --color-foreground: #0f172a;
+  --color-muted: #e9eef5;
+  --color-muted-foreground: #475569;
+  --color-border: #cbd5e1;
+  --color-danger: #b91c1c;
+  --shadow: 0 18px 45px rgb(15 23 42 / 8%);
+  font-family: "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  color: var(--color-foreground);
+  background: var(--color-background);
+}
+
+* { box-sizing: border-box; }
+
+body { margin: 0; min-width: 320px; }
+
+button, textarea { font: inherit; }
+
+.app-shell { width: min(100% - 32px, 900px); margin: 0 auto; padding: 40px 0 28px; }
+
+.site-header { display: flex; justify-content: space-between; align-items: end; gap: 20px; border-bottom: 1px solid var(--color-border); padding-bottom: 22px; }
+
+.eyebrow { margin: 0 0 6px; color: var(--color-accent); font-size: .78rem; font-weight: 700; letter-spacing: .12em; }
+
+h1, h2 { font-family: Georgia, "Noto Serif SC", serif; }
+h1 { margin: 0; color: var(--color-primary-dark); font-size: clamp(1.8rem, 4vw, 2.5rem); }
+h2 { margin: 0 0 10px; font-size: 1.35rem; }
+.header-note, .form-hint { margin: 0; color: var(--color-muted-foreground); font-size: .9rem; }
+
+.notice { margin: 20px 0; border-left: 4px solid var(--color-accent); padding: 12px 16px; background: #fff7ed; color: #7c2d12; line-height: 1.55; }
+
+.message-log { display: grid; gap: 18px; min-height: 350px; padding: 12px 0 24px; }
+.welcome-card, .message { border: 1px solid var(--color-border); border-radius: 12px; padding: 20px; background: var(--color-surface); box-shadow: var(--shadow); }
+.welcome-card p:last-child { margin-bottom: 0; color: var(--color-muted-foreground); line-height: 1.7; }
+.message { max-width: min(760px, 94%); line-height: 1.75; white-space: pre-wrap; }
+.message.user { justify-self: end; border-color: var(--color-primary); background: var(--color-primary); color: #fff; box-shadow: none; }
+.message.assistant { justify-self: start; }
+.message-label { display: block; margin-bottom: 8px; font-size: .8rem; font-weight: 700; color: var(--color-muted-foreground); }
+.message.user .message-label { color: #dbeafe; }
+
+.sources { margin-top: 16px; border-top: 1px solid var(--color-border); padding-top: 12px; color: var(--color-muted-foreground); }
+.sources summary { cursor: pointer; color: var(--color-primary); font-weight: 700; }
+.sources ul { margin: 10px 0 0; padding-left: 20px; }
+.sources li { margin: 7px 0; }
+
+.status { min-height: 26px; margin-bottom: 8px; color: var(--color-muted-foreground); font-size: .92rem; }
+.status.error { color: var(--color-danger); font-weight: 700; }
+
+#chat-form { border-top: 1px solid var(--color-border); padding-top: 20px; }
+#chat-form label { display: block; margin-bottom: 8px; font-weight: 700; }
+.composer { display: flex; align-items: end; gap: 12px; }
+textarea { width: 100%; resize: vertical; border: 1px solid var(--color-border); border-radius: 10px; padding: 12px; color: var(--color-foreground); line-height: 1.55; }
+textarea:focus, button:focus-visible, summary:focus-visible, .skip-link:focus { outline: 3px solid var(--color-primary); outline-offset: 3px; }
+button { min-height: 44px; cursor: pointer; border: 0; border-radius: 10px; padding: 0 16px; background: var(--color-primary); color: #fff; font-weight: 700; transition: background-color 180ms ease, transform 180ms ease; }
+button:hover:not(:disabled) { background: var(--color-primary-dark); transform: translateY(-1px); }
+button:disabled { cursor: wait; opacity: .65; }
+.button-hint { margin-left: 6px; border: 1px solid rgb(255 255 255 / 50%); border-radius: 4px; padding: 1px 4px; font-size: .7rem; }
+
+.skip-link { position: fixed; left: 12px; top: -48px; z-index: 2; padding: 10px; background: #fff; color: var(--color-primary); }
+.skip-link:focus { top: 12px; }
+
+@media (max-width: 600px) {
+  .app-shell { width: min(100% - 24px, 900px); padding-top: 24px; }
+  .site-header { align-items: start; flex-direction: column; gap: 8px; }
+  .composer { align-items: stretch; flex-direction: column; }
+  button { width: 100%; }
+  .message { max-width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; transition: none !important; } }
