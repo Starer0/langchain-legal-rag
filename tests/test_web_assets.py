@@ -29,11 +29,14 @@ class WebAssetTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn('id="chat-form"', response.text)
+        self.assertIn('id="new-conversation"', response.text)
+        self.assertIn('id="conversation-list"', response.text)
+        self.assertIn('id="current-conversation-title"', response.text)
         self.assertIn("legal_rag_session", response.headers["set-cookie"])
 
     def test_static_assets_are_served(self):
         self.assertIn("#chat-form", self.client.get("/static/styles.css").text)
-        self.assertIn("/api/chat", self.client.get("/static/app.js").text)
+        self.assertIn("/api/conversations", self.client.get("/static/app.js").text)
 
     def test_markdown_module_is_served_as_javascript(self):
         response = self.client.get("/static/markdown.mjs")

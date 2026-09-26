@@ -61,20 +61,22 @@ class WebAppTests(unittest.TestCase):
         first = TestClient(app)
         second = TestClient(app)
 
-        response = first.post("/api/chat", json={"question": "试用期工资？"})
+        conversation = first.post("/api/conversations").json()["id"]
+        response = first.post(f"/api/conversations/{conversation}/chat", json={"question": "试用期工资？"})
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(first.get("/api/history").json()["messages"], [
+        self.assertEqual(first.get(f"/api/conversations/{conversation}/messages").json()["messages"], [
             {"role": "user", "content": "试用期工资？"},
             {"role": "assistant", "content": "完整"},
         ])
-        self.assertEqual(second.get("/api/history").json()["messages"], [])
+        self.assertEqual(second.get("/api/conversations").json()["conversations"], [])
 
     def test_successful_sse_persists_the_complete_delta_answer(self):
         app = create_app(self.store, SuccessfulTurn())
         client = TestClient(app)
 
-        response = client.post("/api/chat", json={"question": "问题"})
+        conversation = client.post("/api/conversations").json()["id"]
+        response = client.post(f"/api/conversations/{conversation}/chat", json={"question": "问题"})
 
         self.assertEqual(parse_events(response), [
             ("status", {"stage": "rewrite"}),
@@ -86,8 +88,8 @@ class WebAppTests(unittest.TestCase):
                 "performance": {},
             }),
         ])
-        self.assertIn("legal_rag_session", response.headers["set-cookie"])
-        self.assertEqual(client.get("/api/history").json()["messages"][-1], {
+        self.assertIn("legal_rag_session", client.cookies)
+        self.assertEqual(client.get(f"/api/conversations/{conversation}/messages").json()["messages"][-1], {
             "role": "assistant", "content": "完整",
         })
 
@@ -95,12 +97,30 @@ class WebAppTests(unittest.TestCase):
         app = create_app(self.store, FailingTurn())
         client = TestClient(app)
 
-        events = parse_events(client.post("/api/chat", json={"question": "问题"}))
+        conversation = client.post("/api/conversations").json()["id"]
+        events = parse_events(client.post(f"/api/conversations/{conversation}/chat", json={"question": "问题"}))
 
         self.assertEqual(events[-1], (
             "error", {"message": "暂时无法完成回答，请稍后重试。"}
         ))
-        self.assertEqual(client.get("/api/history").json()["messages"], [])
+        self.assertEqual(client.get(f"/api/conversations/{conversation}/messages").json()["messages"], [])
+
+    def test_conversation_lifecycle_is_isolated_by_browser_session(self):
+        app = create_app(self.store, SuccessfulTurn())
+        first = TestClient(app)
+        second = TestClient(app)
+
+        conversation = first.post("/api/conversations").json()
+        renamed = first.patch(
+            f"/api/conversations/{conversation['id']}",
+            json={"title": "试用期咨询"},
+        )
+
+        self.assertEqual(renamed.status_code, 200)
+        self.assertEqual(renamed.json()["title"], "试用期咨询")
+        self.assertEqual(second.get(f"/api/conversations/{conversation['id']}/messages").status_code, 404)
+        self.assertEqual(first.delete(f"/api/conversations/{conversation['id']}").status_code, 204)
+        self.assertEqual(first.get("/api/conversations").json()["conversations"], [])
 
 
 class WebRuntimeTests(unittest.TestCase):
@@ -114,7 +134,7 @@ class WebRuntimeTests(unittest.TestCase):
                 secure_cookies=False,
             )
             with TestClient(app) as client:
-                self.assertEqual(client.get("/api/history").status_code, 200)
+                self.assertEqual(client.get("/api/conversations").status_code, 200)
 
         create_turn.assert_called_once_with()
 

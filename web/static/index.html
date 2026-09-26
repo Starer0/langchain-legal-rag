@@ -9,11 +9,16 @@
   </head>
   <body>
     <a class="skip-link" href="#question">跳至提问</a>
+    <div class="workspace">
+      <aside class="conversation-sidebar" aria-label="对话列表">
+        <div class="sidebar-heading"><span>法律法规问答</span><button id="new-conversation" type="button">+ 新建对话</button></div>
+        <nav id="conversation-list" aria-label="历史对话"></nav>
+      </aside>
     <div class="app-shell">
       <header class="site-header">
         <div>
           <p class="eyebrow">LEGAL RAG</p>
-          <h1>法律法规问答</h1>
+          <h1 id="current-conversation-title">新对话</h1>
         </div>
         <p class="header-note">基于已收录法规检索生成</p>
       </header>
@@ -43,7 +48,7 @@
         </div>
         <p class="form-hint">Enter 发送，Shift + Enter 换行</p>
       </form>
-    </div>
+    </div></div>
     <template id="source-template">
       <details class="sources">
         <summary>查看参考来源</summary>
