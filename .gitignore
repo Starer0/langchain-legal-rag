@@ -5,4 +5,5 @@ chroma_db/
 chroma_articles_db/
 chroma_legal_db/
 evals/results/
+.superpowers/
 *.pyc
