@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -100,6 +101,22 @@ class WebAppTests(unittest.TestCase):
             "error", {"message": "暂时无法完成回答，请稍后重试。"}
         ))
         self.assertEqual(client.get("/api/history").json()["messages"], [])
+
+
+class WebRuntimeTests(unittest.TestCase):
+    @patch("web_app.create_web_rag_turn")
+    def test_default_app_constructs_one_shared_rag_turn_at_startup(self, create_turn):
+        import web_app
+
+        with tempfile.TemporaryDirectory() as directory:
+            app = web_app.create_default_app(
+                database_path=Path(directory) / "web.sqlite3",
+                secure_cookies=False,
+            )
+            with TestClient(app) as client:
+                self.assertEqual(client.get("/api/history").status_code, 200)
+
+        create_turn.assert_called_once_with()
 
 
 if __name__ == "__main__":
