@@ -7,3 +7,4 @@ chroma_legal_db/
 evals/results/
 .superpowers/
 *.pyc
+data/web_rag.sqlite3
