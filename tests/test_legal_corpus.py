@@ -16,10 +16,18 @@ LAW = {
     "effective_date": "2013-07-01", "status": "现行有效", "expected_articles": 2,
     "source_url": "https://example.org/law",
 }
+GUIDE = {
+    "document_id": "labor_arbitration_guide", "document_type": "办事指南",
+    "title": "劳动争议仲裁办事指南", "source_file": "guide.pdf",
+    "version": "2026-09", "status": "实验资料", "content_start_page": 1,
+}
 PAGES = [
     Document(page_content="1\n中华人民共和国劳动合同法\n第一章 总则\n第一条 第一段。\n第二条 跨页开头", metadata={"page": 0}),
     Document(page_content="2\n中华人民共和国劳动合同法\n跨页结尾。", metadata={"page": 1}),
     Document(page_content="3\n文档信息\n用途说明：不是法条。", metadata={"page": 2}),
+]
+GUIDE_PAGES = [
+    Document(page_content="第一章 总则\n1.1 适用范围\n这是指南正文。", metadata={"page": 0}),
 ]
 
 
@@ -116,6 +124,22 @@ class CorpusIndexTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             corpus.load_catalog(self.catalog)
 
+    @patch("legal_corpus.PyPDFLoader")
+    def test_declared_guide_is_indexed_with_laws_as_an_active_knowledge_unit(self, loader):
+        (self.root / "data" / "guide.pdf").write_bytes(b"guide-pdf")
+        (self.root / "data" / "guides.json").write_text(
+            json.dumps([GUIDE], ensure_ascii=False), encoding="utf-8"
+        )
+        loader.side_effect = lambda path: type("Loader", (), {
+            "load": lambda _: GUIDE_PAGES if str(path).endswith("guide.pdf") else PAGES
+        })()
+
+        manifest = self.ingest()
+
+        self.assertEqual(manifest["article_count"], 2)
+        self.assertEqual(manifest["guide_counts"], {"labor_arbitration_guide": 1})
+        self.assertEqual(manifest["chunk_count"], 3)
+
 
 class MetadataScopeTests(unittest.TestCase):
     def setUp(self):
@@ -124,19 +148,19 @@ class MetadataScopeTests(unittest.TestCase):
     def resolve(self, question, rewritten=None):
         return corpus.resolve_filter({"question": question, "retrieval_question": rewritten or question}, self.laws)
 
-    def test_general_question_searches_all_effective_laws(self):
-        self.assertEqual(self.resolve("试用期工资有什么规定？"), {"status": "现行有效"})
+    def test_general_question_searches_all_active_knowledge_units(self):
+        self.assertEqual(self.resolve("试用期工资有什么规定？"), {"index_status": "active"})
 
     def test_original_law_and_arabic_article_survive_wrong_rewrite(self):
         self.assertEqual(self.resolve("劳动合同法第20条是什么？", "劳动法第四十四条"), {
-            "$and": [{"status": "现行有效"}, {"law_id": {"$in": ["labor_contract_law"]}}, {"article": "第二十条"}],
+            "$and": [{"index_status": "active"}, {"law_id": {"$in": ["labor_contract_law"]}}, {"article": "第二十条"}],
         })
 
     def test_comparison_keeps_both_laws_and_bare_article_does_not_choose_law(self):
         scope = self.resolve("比较《劳动法》和《劳动合同法》的第二十条")
         self.assertEqual(set(scope["$and"][1]["law_id"]["$in"]), {"labor_law", "labor_contract_law"})
         self.assertEqual(len(scope["$and"]), 2)
-        self.assertEqual(self.resolve("第二十条是什么？"), {"status": "现行有效"})
+        self.assertEqual(self.resolve("第二十条是什么？"), {"index_status": "active"})
 
     def test_unknown_book_title_does_not_match_known_law_prefix(self):
         scope = self.resolve("《劳动合同法实施条例》第十条怎么规定？")

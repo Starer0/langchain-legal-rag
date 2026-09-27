@@ -57,7 +57,7 @@ class MetadataFilterEvaluationTests(unittest.TestCase):
             )
             summary = json.loads(summary_path.read_text(encoding="utf-8"))
 
-        self.assertEqual(result["all_laws"]["filter"], {"status": "现行有效"})
+        self.assertEqual(result["all_laws"]["filter"], {"index_status": "active"})
         self.assertEqual(
             result["metadata_filtered"]["filter"]["$and"][-1],
             {"article": "第二十条"},

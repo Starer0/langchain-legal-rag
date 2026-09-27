@@ -63,8 +63,9 @@ function addSources(message, sources) {
   const list = fragment.querySelector("ul");
   for (const source of sources) {
     const item = document.createElement("li");
-    const law = source.law_name || source.source || "法律资料";
-    const article = source.article ? `《${law}》${source.article}` : law;
+    const title = source.law_name || source.title || source.source || "法律资料";
+    const locator = source.article || source.section;
+    const article = locator ? `《${title}》${locator}` : title;
     const pages = source.pages?.length ? `，第 ${source.pages.join("、")} 页` : "";
     item.textContent = `${article}${pages}`;
     list.append(item);

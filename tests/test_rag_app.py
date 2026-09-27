@@ -10,7 +10,7 @@ class CreateRagChainTests(unittest.TestCase):
     @patch("rag_app.OpenAIEmbeddings")
     @patch("rag_app.ChatOpenAI")
     @patch("rag_app.load_dotenv")
-    def test_retrieves_all_laws_by_default_and_filters_an_explicit_law(
+    def test_retrieves_all_active_units_by_default_and_filters_an_explicit_law(
         self,
         load_dotenv,
         chat_openai,
@@ -43,7 +43,7 @@ class CreateRagChainTests(unittest.TestCase):
         })
         self.assertEqual(
             store.similarity_search.call_args.kwargs["filter"],
-            {"status": "现行有效"},
+            {"index_status": "active"},
         )
         retriever.invoke({
             "question": "劳动合同法第20条是什么？",
@@ -53,7 +53,7 @@ class CreateRagChainTests(unittest.TestCase):
             store.similarity_search.call_args.kwargs["filter"],
             {
                 "$and": [
-                    {"status": "现行有效"},
+                    {"index_status": "active"},
                     {"law_id": {"$in": ["labor_contract_law"]}},
                     {"article": "第二十条"},
                 ]

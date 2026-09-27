@@ -10,11 +10,13 @@ from langchain_chroma import Chroma
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.documents import Document
 
+from guide_corpus import prepare_guide
 from rag_pipeline_articles import split_by_articles
 
 
 ROOT = Path(__file__).resolve().parent
 CATALOG_PATH = ROOT / "data" / "laws.json"
+GUIDES_FILENAME = "guides.json"
 DB_DIR = ROOT / "chroma_legal_db"
 SCHEMA_VERSION = "v7-articles-1"
 NUMERALS = "零一二三四五六七八九"
@@ -52,6 +54,33 @@ def article_label(number):
     return f"第{output}条"
 
 
+def load_guides(catalog_path=CATALOG_PATH):
+    catalog_path = Path(catalog_path)
+    path = catalog_path.parent / GUIDES_FILENAME
+    if not path.exists():
+        return []
+    guides = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(guides, list):
+        raise ValueError("办事指南目录必须是列表")
+    ids, files = set(), set()
+    for guide in guides:
+        for key in ("document_id", "document_type", "title", "source_file", "version", "status"):
+            if not isinstance(guide.get(key), str) or not guide[key].strip():
+                raise ValueError(f"办事指南目录缺少 {key}")
+        if not isinstance(guide.get("content_start_page"), int) or guide["content_start_page"] < 1:
+            raise ValueError("办事指南必须登记正文起始页")
+        source = (catalog_path.parent / guide["source_file"]).resolve()
+        if source.parent != catalog_path.parent.resolve() or source.suffix.lower() != ".pdf":
+            raise ValueError("PDF 必须位于知识库目录所在文件夹")
+        if not source.is_file():
+            raise ValueError(f"缺少 PDF：{source.name}")
+        if guide["document_id"] in ids or guide["source_file"] in files:
+            raise ValueError("办事指南 ID 或文件重复登记")
+        ids.add(guide["document_id"])
+        files.add(guide["source_file"])
+    return guides
+
+
 def load_catalog(catalog_path=CATALOG_PATH):
     catalog_path = Path(catalog_path)
     laws = json.loads(catalog_path.read_text(encoding="utf-8"))
@@ -75,7 +104,10 @@ def load_catalog(catalog_path=CATALOG_PATH):
             raise ValueError(f"缺少 PDF：{source.name}")
         ids.add(law["law_id"])
         files.add(law["source_file"])
-    extras = {p.name for p in catalog_path.parent.iterdir() if p.suffix.lower() == ".pdf"} - files
+    guide_files = {guide["source_file"] for guide in load_guides(catalog_path)}
+    if files & guide_files:
+        raise ValueError("法律和办事指南不能登记同一个 PDF")
+    extras = {p.name for p in catalog_path.parent.iterdir() if p.suffix.lower() == ".pdf"} - files - guide_files
     if extras:
         raise ValueError(f"请先在 laws.json 登记新增 PDF：{sorted(extras)}")
     return laws
@@ -108,16 +140,18 @@ def prepare_law(pages, law):
         doc.metadata.update({k: law[k] for k in (
             "law_id", "law_name", "source_file", "source_url", "version", "effective_date", "status",
         )})
+        doc.metadata["index_status"] = "active"
         doc.metadata["pages"] = json.dumps(doc.metadata["pages"])
         doc.metadata["source"] = law["source_file"]
     return chunks
 
 
-def corpus_fingerprint(laws, embedding_config, catalog_path=CATALOG_PATH):
-    files = {law["source_file"]: hashlib.sha256(
-        (Path(catalog_path).parent / law["source_file"]).read_bytes()
-    ).hexdigest() for law in laws}
-    inputs = {"schema": SCHEMA_VERSION, "embedding": embedding_config, "laws": laws, "files": files}
+def corpus_fingerprint(laws, embedding_config, catalog_path=CATALOG_PATH, guides=()):
+    entries = [*laws, *guides]
+    files = {entry["source_file"]: hashlib.sha256(
+        (Path(catalog_path).parent / entry["source_file"]).read_bytes()
+    ).hexdigest() for entry in entries}
+    inputs = {"schema": SCHEMA_VERSION, "embedding": embedding_config, "laws": laws, "guides": guides, "files": files}
     digest = hashlib.sha256(json.dumps(inputs, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     return digest, files
 
@@ -128,25 +162,39 @@ def _store(embeddings, db_dir, collection):
 
 def ingest_corpus(embeddings, embedding_config, catalog_path=CATALOG_PATH, db_dir=DB_DIR):
     laws = load_catalog(catalog_path)
-    fingerprint, files = corpus_fingerprint(laws, embedding_config, catalog_path)
+    guides = load_guides(catalog_path)
+    fingerprint, files = corpus_fingerprint(laws, embedding_config, catalog_path, guides)
     db_dir = Path(db_dir)
     manifest_path = db_dir / "manifest.json"
     if manifest_path.exists():
         saved = json.loads(manifest_path.read_text(encoding="utf-8"))
         if saved["fingerprint"] == fingerprint:
             store = _store(embeddings, db_dir, saved["collection"])
-            if store._collection.count() == saved["article_count"]:
+            if store._collection.count() == saved.get("chunk_count", saved["article_count"]):
                 return saved
     chunks = []
     counts = {}
+    guide_counts = {}
     for law in laws:
         pages = PyPDFLoader(str(Path(catalog_path).parent / law["source_file"])).load()
         articles = prepare_law(pages, law)
         chunks.extend(articles)
         counts[law["law_id"]] = len(articles)
+    for guide in guides:
+        pages = PyPDFLoader(str(Path(catalog_path).parent / guide["source_file"])).load()
+        guide_chunks = prepare_guide(pages, guide)
+        for chunk in guide_chunks:
+            chunk.metadata["index_status"] = "active"
+        chunks.extend(guide_chunks)
+        guide_counts[guide["document_id"]] = len(guide_chunks)
     collection = f"legal_{fingerprint[:24]}"
     store = _store(embeddings, db_dir, collection)
-    ids = [f"{d.metadata['law_id']}:{d.metadata['version']}:{d.metadata['article']}" for d in chunks]
+    ids = [
+        f"{d.metadata['law_id']}:{d.metadata['version']}:{d.metadata['article']}"
+        if d.metadata.get("law_id")
+        else f"{d.metadata['document_id']}:{d.metadata['version']}:{d.metadata['section']}"
+        for d in chunks
+    ]
     existing = set(store.get(include=[])["ids"])
     pending = [(doc, doc_id) for doc, doc_id in zip(chunks, ids) if doc_id not in existing]
     for offset in range(0, len(pending), 32):
@@ -158,7 +206,8 @@ def ingest_corpus(embeddings, embedding_config, catalog_path=CATALOG_PATH, db_di
     manifest = {
         "schema": SCHEMA_VERSION, "fingerprint": fingerprint, "collection": collection,
         "embedding": embedding_config, "files": files, "law_counts": counts,
-        "article_count": len(chunks), "created_at": datetime.now(timezone.utc).isoformat(),
+        "article_count": sum(counts.values()), "guide_counts": guide_counts,
+        "chunk_count": len(chunks), "created_at": datetime.now(timezone.utc).isoformat(),
     }
     temporary = db_dir / "manifest.pending.json"
     temporary.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -168,7 +217,8 @@ def ingest_corpus(embeddings, embedding_config, catalog_path=CATALOG_PATH, db_di
 
 def open_corpus(embeddings, embedding_config, catalog_path=CATALOG_PATH, db_dir=DB_DIR):
     laws = load_catalog(catalog_path)
-    fingerprint, _ = corpus_fingerprint(laws, embedding_config, catalog_path)
+    guides = load_guides(catalog_path)
+    fingerprint, _ = corpus_fingerprint(laws, embedding_config, catalog_path, guides)
     path = Path(db_dir) / "manifest.json"
     if not path.exists():
         raise ValueError("尚未导入知识库，请运行 python main.py --ingest")
@@ -176,7 +226,7 @@ def open_corpus(embeddings, embedding_config, catalog_path=CATALOG_PATH, db_dir=
     if manifest["fingerprint"] != fingerprint:
         raise ValueError("PDF、目录或 Embedding 配置已变化，请重新导入：python main.py --ingest")
     store = _store(embeddings, db_dir, manifest["collection"])
-    if store._collection.count() != manifest["article_count"]:
+    if store._collection.count() != manifest.get("chunk_count", manifest["article_count"]):
         raise ValueError("知识库不完整，请重新导入：python main.py --ingest")
     return store, manifest, laws
 
@@ -196,7 +246,7 @@ def _named_laws(text, laws):
 
 
 def resolve_filter(state, laws, enabled=True):
-    conditions = [{"status": "现行有效"}]
+    conditions = [{"index_status": "active"}]
     if not enabled:
         return conditions[0]
     original = state["question"]
