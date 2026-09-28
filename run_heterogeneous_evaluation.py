@@ -85,7 +85,14 @@ def run_all_cases(run_id, results_dir=RESULTS_DIR, cases=None, service=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-id", required=True)
-    return run_all_cases(parser.parse_args(argv).run_id)
+    parser.add_argument(
+        "--cases-path",
+        type=Path,
+        help="Path to a fixed evaluation case set; defaults to the development set.",
+    )
+    args = parser.parse_args(argv)
+    cases = load_cases(args.cases_path) if args.cases_path else None
+    return run_all_cases(args.run_id, cases=cases)
 
 
 if __name__ == "__main__":

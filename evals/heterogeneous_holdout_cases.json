@@ -1,0 +1,68 @@
+[
+  {
+    "id": "holdout-guide-duration",
+    "category": "guide",
+    "question": "劳动仲裁从递交申请到拿到裁决，通常需要多长时间？",
+    "expected_include_guide": true,
+    "expected_sources": [{"document_id": "labor_arbitration_guide_experimental_city", "section": "2.1 全流程预计时长"}],
+    "required_facts": ["2 至 3 个月"],
+    "answerable": true
+  },
+  {
+    "id": "holdout-guide-lawyer-fee",
+    "category": "guide",
+    "question": "劳动仲裁里请律师的钱，一般应由哪一方支付？",
+    "expected_include_guide": true,
+    "expected_sources": [{"document_id": "labor_arbitration_guide_experimental_city", "section": "5.3 请律师代理仲裁的费用由谁承担？"}],
+    "required_facts": ["委托人"],
+    "answerable": true
+  },
+  {
+    "id": "holdout-guide-withheld-contract",
+    "category": "guide",
+    "question": "公司拿走了我的劳动合同原件，我可以用哪些材料证明劳动关系？",
+    "expected_include_guide": true,
+    "expected_sources": [{"document_id": "labor_arbitration_guide_experimental_city", "section": "5.4 单位扣押劳动合同原件，拿不到证据怎么办？"}],
+    "required_facts": ["工资流水"],
+    "answerable": true
+  },
+  {
+    "id": "holdout-law-timely-pay",
+    "category": "law",
+    "question": "劳动合同法对工资支付的及时性和足额性有什么要求？",
+    "expected_include_guide": false,
+    "expected_sources": [{"law_id": "labor_contract_law", "article": "第三十条"}],
+    "required_facts": ["及时足额"],
+    "answerable": true
+  },
+  {
+    "id": "holdout-law-arbitration-limitation",
+    "category": "law",
+    "question": "劳动争议申请仲裁的时效期间是几年？",
+    "expected_include_guide": false,
+    "expected_sources": [{"law_id": "labor_arbitration_law", "article": "第二十七条"}],
+    "required_facts": ["一年"],
+    "answerable": true
+  },
+  {
+    "id": "holdout-mixed-unpaid-wages",
+    "category": "mixed",
+    "question": "公司没有按时足额发工资，我申请劳动仲裁时要交什么核心材料？",
+    "expected_include_guide": true,
+    "expected_sources": [
+      {"law_id": "labor_contract_law", "article": "第三十条"},
+      {"document_id": "labor_arbitration_guide_experimental_city", "section": "3.1 必备材料"}
+    ],
+    "required_facts": ["及时足额", "仲裁申请书"],
+    "answerable": true
+  },
+  {
+    "id": "holdout-unsupported-social-insurance",
+    "category": "unsupported",
+    "question": "这份劳动仲裁办事指南中，补缴社会保险应提交什么材料？",
+    "expected_include_guide": false,
+    "expected_sources": [],
+    "required_facts": [],
+    "answerable": false
+  }
+]
