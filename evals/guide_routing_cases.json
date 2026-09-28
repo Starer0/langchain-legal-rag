@@ -1,0 +1,42 @@
+[
+  {
+    "id": "unsigned-contract-materials",
+    "question": "劳动合同法对未签书面合同怎么规定，申请仲裁要带什么材料？",
+    "expected_include_guide": true
+  },
+  {
+    "id": "arbitration-process",
+    "question": "劳动合同法对拖欠工资怎么规定，劳动仲裁的流程怎么走？",
+    "expected_include_guide": true
+  },
+  {
+    "id": "arbitration-fee",
+    "question": "劳动合同法关于工资争议有什么规定，申请劳动仲裁收费吗？",
+    "expected_include_guide": true
+  },
+  {
+    "id": "award-duration",
+    "question": "劳动合同法规定之外，劳动仲裁受理后一般多久能出裁决？",
+    "expected_include_guide": true
+  },
+  {
+    "id": "probation-wage-law-only",
+    "question": "劳动合同法第20条对试用期工资怎么规定？",
+    "expected_include_guide": false
+  },
+  {
+    "id": "termination-law-only",
+    "question": "劳动合同法中劳动者解除劳动合同的通知期限如何规定？",
+    "expected_include_guide": false
+  },
+  {
+    "id": "working-hours-law-only",
+    "question": "劳动法对每日和每周工作时长上限有什么规定？",
+    "expected_include_guide": false
+  },
+  {
+    "id": "arbitration-limit-law-only",
+    "question": "劳动争议调解仲裁法对申请仲裁时效如何规定？",
+    "expected_include_guide": false
+  }
+]
