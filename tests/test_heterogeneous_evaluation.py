@@ -60,3 +60,15 @@ class HeterogeneousEvaluationTests(unittest.TestCase):
             result = json.loads((root / "unsupported" / "mixed-materials.json").read_text(encoding="utf-8"))
 
         self.assertTrue(result["metrics"]["expected_sources_in_sources"])
+
+    def test_answerable_case_can_qualify_unasked_details_without_false_refusal(self):
+        service = Mock()
+        service.ask.return_value = {**RESULT, "answer": "双倍工资；仲裁申请书。其他细节资料中没有足够依据。"}
+        service.history.clear = Mock()
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            run_all_cases("qualified", results_dir=root, cases=[CASE], service=service)
+            result = json.loads((root / "qualified" / "mixed-materials.json").read_text(encoding="utf-8"))
+
+        self.assertFalse(result["metrics"]["unexpected_refusal"])

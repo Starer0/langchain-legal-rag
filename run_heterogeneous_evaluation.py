@@ -37,7 +37,8 @@ def _metrics(case, result):
         "route_matches_expected": result.get("include_guide") == case["expected_include_guide"],
         "expected_sources_in_sources": _sources_hit(case["expected_sources"], result.get("sources", [])),
         "required_facts_present": all(fact in answer for fact in case["required_facts"]),
-        "refusal_phrase_present": REFUSAL in answer,
+        "unexpected_refusal": case["answerable"] and answer.strip().startswith(REFUSAL),
+        "correct_refusal": not case["answerable"] and REFUSAL in answer,
     }
 
 
@@ -48,9 +49,7 @@ def _summary(results):
         "route_hits": sum(item["metrics"]["route_matches_expected"] for item in results),
         "source_hits": sum(item["metrics"]["expected_sources_in_sources"] for item in results),
         "fact_hits": sum(item["metrics"]["required_facts_present"] for item in results),
-        "refusal_hits": sum(
-            item["metrics"]["refusal_phrase_present"] for item in results if not item["case"]["answerable"]
-        ),
+        "refusal_hits": sum(item["metrics"]["correct_refusal"] for item in results),
     }
 
 

@@ -1,7 +1,7 @@
 [
   {"id":"guide-process","question":"申请劳动仲裁的流程怎么走？","expected_include_guide":true,"expected_sources":[{"document_id":"labor_arbitration_guide_experimental_city","section":"第二章 办理流程"}],"required_facts":["申请"],"answerable":true},
   {"id":"guide-materials","question":"申请劳动仲裁要准备哪些必备材料？","expected_include_guide":true,"expected_sources":[{"document_id":"labor_arbitration_guide_experimental_city","section":"3.1 必备材料"}],"required_facts":["仲裁申请书"],"answerable":true},
-  {"id":"guide-fee","question":"申请劳动仲裁收费吗？","expected_include_guide":true,"expected_sources":[{"document_id":"labor_arbitration_guide_experimental_city","section":"4.2 费用说明"}],"required_facts":["不收取"],"answerable":true},
+  {"id":"guide-fee","question":"申请劳动仲裁收费吗？","expected_include_guide":true,"expected_sources":[{"document_id":"labor_arbitration_guide_experimental_city","section":"4.2 费用说明"}],"required_facts":["不收费"],"answerable":true},
   {"id":"guide-award-duration","question":"劳动仲裁受理后一般多久作出裁决？","expected_include_guide":true,"expected_sources":[{"document_id":"labor_arbitration_guide_experimental_city","section":"5.1 仲裁裁决一般多久作出？"}],"required_facts":["四十五日"],"answerable":true},
   {"id":"law-probation","question":"劳动合同法第20条对试用期工资怎么规定？","expected_include_guide":false,"expected_sources":[{"law_id":"labor_contract_law","article":"第二十条"}],"required_facts":["不得低于"],"answerable":true},
   {"id":"law-working-hours","question":"劳动法对每日和每周工作时间上限有什么规定？","expected_include_guide":false,"expected_sources":[{"law_id":"labor_law","article":"第三十六条"}],"required_facts":["八小时"],"answerable":true},
