@@ -3,6 +3,27 @@ from unittest.mock import patch
 
 
 class CreateRagChainTests(unittest.TestCase):
+    @patch("rag_app.load_guides")
+    @patch("rag_app.RetrievalQuestionRewriter")
+    @patch("rag_app.ChatOpenAI")
+    @patch("rag_app.create_rag_chain")
+    @patch("rag_app.load_dotenv")
+    def test_conversation_rewriter_receives_the_guide_catalog(
+        self, load_dotenv, create_rag_chain, chat_openai, rewriter, load_guides
+    ):
+        import rag_app
+
+        guides = [{
+            "document_type": "办事指南",
+            "title": "劳动争议仲裁办事指南",
+            "routing_topics": ["申请材料"],
+        }]
+        load_guides.return_value = guides
+
+        rag_app.create_conversation_service()
+
+        rewriter.assert_called_once_with(chat_openai.return_value, guides)
+
     @patch.dict("os.environ", {"METADATA_FILTER": "true"}, clear=False)
     @patch("builtins.print")
     @patch("rag_app.build_rag_chain")
@@ -107,7 +128,8 @@ class CreateRagChainTests(unittest.TestCase):
         self.assertEqual(service.max_turns, 3)
         self.assertEqual(service.rag_chain, "shared-chain")
         create_rag_chain.assert_called_once()
-        rewriter.assert_called_once_with(chat_openai.return_value)
+        self.assertIs(rewriter.call_args.args[0], chat_openai.return_value)
+        self.assertTrue(rewriter.call_args.args[1])
 
     @patch.dict("os.environ", {"HISTORY_TURNS": "3"}, clear=False)
     @patch("builtins.print")

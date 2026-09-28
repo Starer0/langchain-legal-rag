@@ -8,7 +8,7 @@ from langchain_core.runnables import RunnableLambda
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 from conversation import ConversationRagService
-from legal_corpus import ingest_corpus, open_corpus, resolve_filter
+from legal_corpus import ingest_corpus, load_guides, open_corpus, resolve_filter
 from performance import measure
 from query_decomposition import CompositeQuestionDecomposer
 from query_rewrite import RetrievalQuestionRewriter
@@ -150,7 +150,7 @@ def create_conversation_service(decompose=False, profile=False):
         chain_options["profile"] = True
     return ConversationRagService(
         rag_chain=create_rag_chain(**chain_options),
-        rewriter=RetrievalQuestionRewriter(rewrite_model),
+        rewriter=RetrievalQuestionRewriter(rewrite_model, load_guides()),
         history=InMemoryChatMessageHistory(),
         max_turns=history_turns,
         decomposer=CompositeQuestionDecomposer(rewrite_model) if decompose else None,
@@ -223,7 +223,7 @@ def create_web_rag_turn():
 请给出清晰、谨慎的回答，并尽可能引用相关条文或页码。
 """)
     return StreamingRagTurn(
-        rewriter=RetrievalQuestionRewriter(rewrite_model),
+        rewriter=RetrievalQuestionRewriter(rewrite_model, load_guides()),
         retriever=retriever,
         reranker=reranker,
         prompt=prompt,

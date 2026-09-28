@@ -4,6 +4,7 @@ from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, HumanMessage
 
 from web_rag import StreamingRagTurn
+from query_rewrite import RetrievalPlan
 
 
 class FakeRewriter:
@@ -13,7 +14,7 @@ class FakeRewriter:
 
     def rewrite(self, question, history):
         self.calls.append((question, list(history)))
-        return self.rewritten_question
+        return RetrievalPlan(self.rewritten_question, include_guide=False)
 
 
 class FakeRetriever:
@@ -105,6 +106,7 @@ class StreamingRagTurnTests(unittest.TestCase):
             self.retriever.states[0]["retrieval_question"],
             "试用期工资有什么规定？",
         )
+        self.assertFalse(self.retriever.states[0]["include_guide"])
         self.assertEqual(self.prompt.values[0]["question"], "那工资呢？")
 
 

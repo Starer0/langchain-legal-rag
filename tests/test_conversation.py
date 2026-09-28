@@ -5,6 +5,7 @@ from langchain_core.chat_history import InMemoryChatMessageHistory
 from langchain_core.messages import AIMessage, HumanMessage
 
 from conversation import ConversationRagService, recent_complete_turns
+from query_rewrite import RetrievalPlan
 
 
 class ConversationRagServiceTests(unittest.TestCase):
@@ -30,7 +31,9 @@ class ConversationRagServiceTests(unittest.TestCase):
         history.add_user_message("试用期最长多久？")
         history.add_ai_message("最长六个月。")
         rewriter = Mock()
-        rewriter.rewrite.return_value = "试用期内劳动者工资有什么规定？"
+        rewriter.rewrite.return_value = RetrievalPlan(
+            "试用期内劳动者工资有什么规定？", include_guide=False
+        )
         chain = Mock()
         chain.invoke.return_value = {"answer": "应按规定支付工资。"}
         service = ConversationRagService(chain, rewriter, history)
@@ -41,6 +44,7 @@ class ConversationRagServiceTests(unittest.TestCase):
         chain.invoke.assert_called_once_with({
             "question": "那工资呢？",
             "retrieval_question": "试用期内劳动者工资有什么规定？",
+            "include_guide": False,
         })
         self.assertEqual(result["retrieval_question"], "试用期内劳动者工资有什么规定？")
         self.assertEqual(
@@ -51,7 +55,9 @@ class ConversationRagServiceTests(unittest.TestCase):
     def test_failed_chain_does_not_append_partial_turn(self):
         history = InMemoryChatMessageHistory()
         rewriter = Mock()
-        rewriter.rewrite.return_value = "试用期内劳动者工资有什么规定？"
+        rewriter.rewrite.return_value = RetrievalPlan(
+            "试用期内劳动者工资有什么规定？", include_guide=False
+        )
         chain = Mock()
         chain.invoke.side_effect = RuntimeError("reranker unavailable")
         service = ConversationRagService(chain, rewriter, history)
@@ -64,7 +70,9 @@ class ConversationRagServiceTests(unittest.TestCase):
     def test_composite_question_passes_independent_queries_to_chain(self):
         history = InMemoryChatMessageHistory()
         rewriter = Mock()
-        rewriter.rewrite.return_value = "试用期工资和仲裁时效是什么？"
+        rewriter.rewrite.return_value = RetrievalPlan(
+            "试用期工资和仲裁时效是什么？", include_guide=None
+        )
         decomposer = Mock()
         decomposer.decompose.return_value = [
             "试用期工资有什么规定？",
@@ -84,6 +92,7 @@ class ConversationRagServiceTests(unittest.TestCase):
         chain.invoke.assert_called_once_with({
             "question": "工资少发了，仲裁有时效吗？",
             "retrieval_question": "试用期工资和仲裁时效是什么？",
+            "include_guide": None,
             "retrieval_questions": [
                 "试用期工资有什么规定？",
                 "劳动争议申请仲裁的时效多久？",
@@ -112,7 +121,11 @@ class ConversationRagServiceTests(unittest.TestCase):
     def test_successful_turns_keep_stored_history_bounded(self):
         history = InMemoryChatMessageHistory()
         rewriter = Mock()
-        rewriter.rewrite.side_effect = ["query-1", "query-2", "query-3"]
+        rewriter.rewrite.side_effect = [
+            RetrievalPlan("query-1", include_guide=False),
+            RetrievalPlan("query-2", include_guide=False),
+            RetrievalPlan("query-3", include_guide=False),
+        ]
         chain = Mock()
         chain.invoke.side_effect = [
             {"answer": "answer-1"},

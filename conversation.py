@@ -42,10 +42,12 @@ class ConversationRagService:
         profile = TurnProfile() if self.profile else None
         history = recent_complete_turns(self.history.messages, self.max_turns)
         rewrite = lambda: self.rewriter.rewrite(original_question, history)
-        retrieval_question = profile.measure("rewrite", rewrite) if profile else rewrite()
+        plan = profile.measure("rewrite", rewrite) if profile else rewrite()
+        retrieval_question = plan.retrieval_question
         state = {
             "question": original_question,
             "retrieval_question": retrieval_question,
+            "include_guide": plan.include_guide,
         }
         if profile:
             state["_profile"] = profile

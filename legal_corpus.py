@@ -69,6 +69,10 @@ def load_guides(catalog_path=CATALOG_PATH):
                 raise ValueError(f"办事指南目录缺少 {key}")
         if not isinstance(guide.get("content_start_page"), int) or guide["content_start_page"] < 1:
             raise ValueError("办事指南必须登记正文起始页")
+        if not isinstance(guide.get("routing_topics"), list) or not guide["routing_topics"] or not all(
+            isinstance(topic, str) and topic.strip() for topic in guide["routing_topics"]
+        ):
+            raise ValueError("办事指南必须登记 routing_topics")
         source = (catalog_path.parent / guide["source_file"]).resolve()
         if source.parent != catalog_path.parent.resolve() or source.suffix.lower() != ".pdf":
             raise ValueError("PDF 必须位于知识库目录所在文件夹")
@@ -255,13 +259,18 @@ def resolve_filter(state, laws, enabled=True):
     selected = original_selected
     text = original if selected else rewritten
     selected = selected or _named_laws(rewritten, laws)
+    if "include_guide" in state and state["include_guide"] is None and selected:
+        return conditions[0]
     if selected:
         articles = {article_number(m.group(1)) for m in ARTICLE_REF.finditer(text)}
         law_conditions = [{"law_id": {"$in": selected}}]
         if len(selected) == 1 and len(articles) == 1:
             law_conditions.append({"article": article_label(articles.pop())})
         law_scope = {"$and": law_conditions} if len(law_conditions) > 1 else law_conditions[0]
-        if original_selected and "办事指南" in original:
+        include_guide = state.get("include_guide") is True or (
+            original_selected and "办事指南" in original
+        )
+        if include_guide:
             conditions.append({"$or": [law_scope, {"document_type": "办事指南"}]})
         else:
             conditions.extend(law_conditions)

@@ -6,6 +6,14 @@
     "source_file": "劳动争议仲裁办事指南.pdf",
     "version": "2026-09",
     "status": "实验资料",
-    "content_start_page": 3
+    "content_start_page": 3,
+    "routing_topics": [
+      "劳动仲裁申请",
+      "办理流程",
+      "申请材料",
+      "时限",
+      "费用",
+      "常见问题"
+    ]
   }
 ]

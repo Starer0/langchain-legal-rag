@@ -6,6 +6,7 @@ from langchain_core.documents import Document
 from langchain_core.runnables import RunnableLambda
 
 from conversation import ConversationRagService
+from query_rewrite import RetrievalPlan
 from rag_pipeline_articles import CompositeRagChain, build_rag_chain
 
 
@@ -13,7 +14,9 @@ class ConversationProfilingTests(unittest.TestCase):
     def test_profiled_turn_reports_rewrite_and_pipeline_without_changing_answer(self):
         history = InMemoryChatMessageHistory()
         rewriter = Mock()
-        rewriter.rewrite.return_value = "试用期工资规定？"
+        rewriter.rewrite.return_value = RetrievalPlan(
+            "试用期工资规定？", include_guide=False
+        )
         chain = Mock()
         chain.invoke.return_value = {"answer": "按法律规定支付。", "sources": []}
         service = ConversationRagService(chain, rewriter, history, profile=True)
@@ -30,7 +33,9 @@ class ConversationProfilingTests(unittest.TestCase):
 
     def test_profiled_decomposition_counts_one_call_without_changing_subquestions(self):
         rewriter = Mock()
-        rewriter.rewrite.return_value = "工资和仲裁时效？"
+        rewriter.rewrite.return_value = RetrievalPlan(
+            "工资和仲裁时效？", include_guide=None
+        )
         decomposer = Mock()
         decomposer.decompose.return_value = ["工资？", "仲裁时效？"]
         chain = Mock()

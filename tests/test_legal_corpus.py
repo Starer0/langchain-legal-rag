@@ -20,6 +20,7 @@ GUIDE = {
     "document_id": "labor_arbitration_guide", "document_type": "办事指南",
     "title": "劳动争议仲裁办事指南", "source_file": "guide.pdf",
     "version": "2026-09", "status": "实验资料", "content_start_page": 1,
+    "routing_topics": ["劳动仲裁申请", "申请材料"],
 }
 PAGES = [
     Document(page_content="1\n中华人民共和国劳动合同法\n第一章 总则\n第一条 第一段。\n第二条 跨页开头", metadata={"page": 0}),
@@ -124,6 +125,16 @@ class CorpusIndexTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             corpus.load_catalog(self.catalog)
 
+    def test_guide_without_routing_topics_is_rejected(self):
+        (self.root / "data" / "guide.pdf").write_bytes(b"guide-pdf")
+        (self.root / "data" / "guides.json").write_text(
+            json.dumps([{key: value for key, value in GUIDE.items() if key != "routing_topics"}], ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(ValueError, "routing_topics"):
+            corpus.load_guides(self.catalog)
+
     @patch("legal_corpus.PyPDFLoader")
     def test_declared_guide_is_indexed_with_laws_as_an_active_knowledge_unit(self, loader):
         (self.root / "data" / "guide.pdf").write_bytes(b"guide-pdf")
@@ -159,6 +170,25 @@ class MetadataScopeTests(unittest.TestCase):
     def test_explicit_guide_request_with_named_law_searches_both_sources(self):
         self.assertEqual(
             self.resolve("劳动合同法对未签订书面劳动合同怎么规定？办事指南建议准备什么材料？"),
+            {
+                "$and": [
+                    {"index_status": "active"},
+                    {"$or": [
+                        {"law_id": {"$in": ["labor_contract_law"]}},
+                        {"document_type": "办事指南"},
+                    ]},
+                ],
+            },
+        )
+
+    def test_model_guide_route_combines_sources_without_literal_guide_words(self):
+        state = {
+            "question": "劳动合同法对未签订书面劳动合同怎么规定，申请仲裁要带什么？",
+            "retrieval_question": "劳动合同法未签订书面劳动合同和仲裁申请材料",
+            "include_guide": True,
+        }
+        self.assertEqual(
+            corpus.resolve_filter(state, self.laws),
             {
                 "$and": [
                     {"index_status": "active"},

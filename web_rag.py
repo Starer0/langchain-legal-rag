@@ -35,13 +35,15 @@ class StreamingRagTurn:
         history = recent_complete_turns(messages, self.history_turns)
 
         yield {"event": "status", "data": {"stage": "rewrite"}}
-        retrieval_question = profile.measure(
+        plan = profile.measure(
             "rewrite",
             lambda: self.rewriter.rewrite(original_question, history),
         )
+        retrieval_question = plan.retrieval_question
         state = {
             "question": original_question,
             "retrieval_question": retrieval_question,
+            "include_guide": plan.include_guide,
             "_profile": profile,
         }
 
