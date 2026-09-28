@@ -72,15 +72,18 @@ def _terms_present(retrieval_question: str, expected_terms: list[str]) -> bool:
 
 
 def invoke_mode(chain, rewriter, question: str, history: list, case: dict) -> dict:
-    retrieval_question = rewriter.rewrite(question, history)
+    plan = rewriter.rewrite(question, history)
+    retrieval_question = plan.retrieval_question
     chain_result = dict(chain.invoke({
         "question": question,
         "retrieval_question": retrieval_question,
+        "include_guide": plan.include_guide,
     }))
     candidates = chain_result.get("candidates", [])
     sources = chain_result.get("sources", [])
     return {
         "retrieval_question": retrieval_question,
+        "include_guide": plan.include_guide,
         "answer": chain_result.get("answer"),
         "candidates": candidates,
         "sources": sources,

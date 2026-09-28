@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, call
 
+from query_rewrite import RetrievalPlan
 from run_multiturn_evaluation import run_all_cases
 
 
@@ -29,7 +30,10 @@ class MultiturnEvaluationTests(unittest.TestCase):
         chain = Mock()
         chain.invoke.return_value = CHAIN_RESULT
         rewriter = Mock()
-        rewriter.rewrite.side_effect = ["工资规定", "试用期工资规定"]
+        rewriter.rewrite.side_effect = [
+            RetrievalPlan("工资规定", include_guide=False),
+            RetrievalPlan("试用期工资规定", include_guide=True),
+        ]
 
         with tempfile.TemporaryDirectory() as temporary_directory:
             results_dir = Path(temporary_directory)
@@ -57,8 +61,16 @@ class MultiturnEvaluationTests(unittest.TestCase):
         self.assertEqual(
             chain.invoke.call_args_list,
             [
-                call({"question": "那工资呢？", "retrieval_question": "工资规定"}),
-                call({"question": "那工资呢？", "retrieval_question": "试用期工资规定"}),
+                call({
+                    "question": "那工资呢？",
+                    "retrieval_question": "工资规定",
+                    "include_guide": False,
+                }),
+                call({
+                    "question": "那工资呢？",
+                    "retrieval_question": "试用期工资规定",
+                    "include_guide": True,
+                }),
             ],
         )
         no_history = rewriter.rewrite.call_args_list[0].args[1]
