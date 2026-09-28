@@ -251,12 +251,18 @@ def resolve_filter(state, laws, enabled=True):
         return conditions[0]
     original = state["question"]
     rewritten = state["retrieval_question"]
-    selected = _named_laws(original, laws)
+    original_selected = _named_laws(original, laws)
+    selected = original_selected
     text = original if selected else rewritten
     selected = selected or _named_laws(rewritten, laws)
     if selected:
-        conditions.append({"law_id": {"$in": selected}})
         articles = {article_number(m.group(1)) for m in ARTICLE_REF.finditer(text)}
+        law_conditions = [{"law_id": {"$in": selected}}]
         if len(selected) == 1 and len(articles) == 1:
-            conditions.append({"article": article_label(articles.pop())})
+            law_conditions.append({"article": article_label(articles.pop())})
+        law_scope = {"$and": law_conditions} if len(law_conditions) > 1 else law_conditions[0]
+        if original_selected and "办事指南" in original:
+            conditions.append({"$or": [law_scope, {"document_type": "办事指南"}]})
+        else:
+            conditions.extend(law_conditions)
     return {"$and": conditions} if len(conditions) > 1 else conditions[0]

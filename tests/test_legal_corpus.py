@@ -156,6 +156,37 @@ class MetadataScopeTests(unittest.TestCase):
             "$and": [{"index_status": "active"}, {"law_id": {"$in": ["labor_contract_law"]}}, {"article": "第二十条"}],
         })
 
+    def test_explicit_guide_request_with_named_law_searches_both_sources(self):
+        self.assertEqual(
+            self.resolve("劳动合同法对未签订书面劳动合同怎么规定？办事指南建议准备什么材料？"),
+            {
+                "$and": [
+                    {"index_status": "active"},
+                    {"$or": [
+                        {"law_id": {"$in": ["labor_contract_law"]}},
+                        {"document_type": "办事指南"},
+                    ]},
+                ],
+            },
+        )
+
+    def test_article_constraint_stays_on_law_branch_of_mixed_request(self):
+        self.assertEqual(
+            self.resolve("劳动合同法第20条怎么规定？办事指南建议准备什么材料？"),
+            {
+                "$and": [
+                    {"index_status": "active"},
+                    {"$or": [
+                        {"$and": [
+                            {"law_id": {"$in": ["labor_contract_law"]}},
+                            {"article": "第二十条"},
+                        ]},
+                        {"document_type": "办事指南"},
+                    ]},
+                ],
+            },
+        )
+
     def test_comparison_keeps_both_laws_and_bare_article_does_not_choose_law(self):
         scope = self.resolve("比较《劳动法》和《劳动合同法》的第二十条")
         self.assertEqual(set(scope["$and"][1]["law_id"]["$in"]), {"labor_law", "labor_contract_law"})
