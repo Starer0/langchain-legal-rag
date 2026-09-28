@@ -1,0 +1,10 @@
+[
+  {
+    "id": "supported-wages-materials-unsupported-social-insurance",
+    "question": "公司没有按时足额发工资；申请劳动仲裁需要提交哪些基本材料；这份劳动仲裁办事指南中如何申请补缴社会保险、要交什么材料？",
+    "expected_articles": [
+      {"law_id": "labor_contract_law", "article": "第三十条"}
+    ],
+    "expected_law_ids": ["labor_contract_law"]
+  }
+]

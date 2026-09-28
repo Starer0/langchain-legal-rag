@@ -24,7 +24,7 @@ class TurnProfile:
             },
             "model_calls": sum(
                 self.stages.get(name, {}).get("calls", 0)
-                for name in ("rewrite", "decompose", "answer")
+                for name in ("rewrite", "decompose", "evidence_selection", "answer")
             ),
             "reranker_calls": self.stages.get("rerank", {}).get("calls", 0),
         }

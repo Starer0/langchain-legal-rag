@@ -8,6 +8,7 @@ from langchain_core.runnables import RunnableLambda
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 from conversation import ConversationRagService
+from evidence_selector import EvidenceSelector
 from legal_corpus import ingest_corpus, load_guides, open_corpus, resolve_filter
 from performance import measure
 from query_decomposition import CompositeQuestionDecomposer
@@ -47,7 +48,9 @@ def ingest_legal_corpus():
     return manifest
 
 
-def create_rag_chain(metadata_filter=None, decompose=False, profile=False):
+def create_rag_chain(
+    metadata_filter=None, decompose=False, profile=False, evidence_selection=True,
+):
     load_dotenv()
     model = ChatOpenAI(
         model=os.getenv("MODEL_NAME", "deepseek-chat"),
@@ -130,12 +133,28 @@ def create_rag_chain(metadata_filter=None, decompose=False, profile=False):
         | model
         | StrOutputParser()
     )
+    evidence_selector = None
+    if evidence_selection:
+        evidence_model = ChatOpenAI(
+            model=os.getenv(
+                "EVIDENCE_SELECTOR_MODEL", os.getenv("MODEL_NAME", "deepseek-chat")
+            ),
+            api_key=os.getenv("DEEPSEEK_API_KEY"),
+            base_url=os.getenv("DEEPSEEK_BASE_URL"),
+            temperature=0,
+        )
+        evidence_selector = EvidenceSelector(evidence_model)
     return CompositeRagChain(
-        single_chain, retriever, reranker, answer_chain, top_n=rerank_top_n
+        single_chain,
+        retriever,
+        reranker,
+        answer_chain,
+        top_n=rerank_top_n,
+        evidence_selector=evidence_selector,
     )
 
 
-def create_conversation_service(decompose=False, profile=False):
+def create_conversation_service(decompose=False, profile=False, evidence_selection=True):
     """Create the CLI service with bounded in-memory conversation history."""
     load_dotenv()
     history_turns = int(os.getenv("HISTORY_TURNS", "4"))
@@ -148,6 +167,8 @@ def create_conversation_service(decompose=False, profile=False):
     chain_options = {"decompose": True} if decompose else {}
     if profile:
         chain_options["profile"] = True
+    if not evidence_selection:
+        chain_options["evidence_selection"] = False
     return ConversationRagService(
         rag_chain=create_rag_chain(**chain_options),
         rewriter=RetrievalQuestionRewriter(rewrite_model, load_guides()),

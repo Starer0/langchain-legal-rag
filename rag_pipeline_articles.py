@@ -178,7 +178,10 @@ def _document_key(doc: Document):
 class CompositeRagChain:
     """Retrieve and rerank each distinct intent before one final answer."""
 
-    def __init__(self, single_chain, retriever, reranker, answer_chain, top_n):
+    def __init__(
+        self, single_chain, retriever, reranker, answer_chain, top_n,
+        evidence_selector=None,
+    ):
         if top_n < 1:
             raise ValueError("top_n 必须大于等于 1")
         self.single_chain = single_chain
@@ -186,6 +189,7 @@ class CompositeRagChain:
         self.reranker = reranker
         self.answer_chain = answer_chain
         self.top_n = top_n
+        self.evidence_selector = evidence_selector
 
     def invoke(self, state):
         questions = state.get("retrieval_questions", [])
@@ -207,27 +211,29 @@ class CompositeRagChain:
                     candidate_keys.add(key)
             ranked_batches.append(self.reranker.invoke({**substate, "candidates": batch}))
 
-        selected = []
-        selected_keys = set()
-        for rank in range(max((len(batch) for batch in ranked_batches), default=0)):
-            for batch in ranked_batches:
-                if rank >= len(batch):
-                    continue
-                doc = batch[rank]
-                key = _document_key(doc)
-                if key not in selected_keys:
-                    selected.append(doc)
-                    selected_keys.add(key)
-                if len(selected) >= self.top_n:
-                    break
-            if len(selected) >= self.top_n:
-                break
+        selection = None
+        if self.evidence_selector is not None:
+            try:
+                selection = measure(
+                    state,
+                    "evidence_selection",
+                    lambda: self.evidence_selector.select(
+                        state["question"], questions, ranked_batches, top_n=self.top_n
+                    ),
+                )
+            except Exception:
+                selection = None
+
+        if selection is not None:
+            selected = _take_unique(selection.documents, self.top_n)
+        else:
+            selected = _round_robin_select(ranked_batches, self.top_n)
 
         answer_state = {"question": state["question"], "docs": selected}
         answer = measure(
             state, "answer", lambda: self.answer_chain.invoke(answer_state)
         )
-        return {
+        result = {
             "answer": answer,
             "candidates": format_sources(candidates),
             "sources": format_sources(selected),
@@ -236,6 +242,42 @@ class CompositeRagChain:
                 for question, batch in zip(questions, ranked_batches)
             ],
         }
+        if selection is not None:
+            result["evidence_selection"] = {
+                "answerable": selection.answerable,
+                "selected_document_ids": selection.selected_document_ids,
+            }
+        return result
+
+
+def _take_unique(documents, top_n):
+    selected = []
+    selected_keys = set()
+    for document in documents:
+        key = _document_key(document)
+        if key not in selected_keys:
+            selected.append(document)
+            selected_keys.add(key)
+        if len(selected) >= top_n:
+            break
+    return selected
+
+
+def _round_robin_select(ranked_batches, top_n):
+    selected = []
+    selected_keys = set()
+    for rank in range(max((len(batch) for batch in ranked_batches), default=0)):
+        for batch in ranked_batches:
+            if rank >= len(batch):
+                continue
+            document = batch[rank]
+            key = _document_key(document)
+            if key not in selected_keys:
+                selected.append(document)
+                selected_keys.add(key)
+            if len(selected) >= top_n:
+                return selected
+    return selected
 
 
 def _normalize_rag_input(value):

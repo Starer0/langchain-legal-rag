@@ -45,6 +45,21 @@ class CompositeBaselineTests(unittest.TestCase):
             "cases_path": Path("holdout.json"),
         })
 
+    def test_cli_can_profile_the_selector_against_the_old_merge_rule(self):
+        with patch("run_composite_baseline.run_baseline") as run:
+            main([
+                "--run-id", "comparison", "--decompose", "--profile",
+                "--no-evidence-selection",
+            ])
+
+        self.assertEqual(run.call_args.args, ("comparison",))
+        self.assertEqual(run.call_args.kwargs, {
+            "decompose": True,
+            "cases_path": Path("evals/composite_question_cases.json"),
+            "profile": True,
+            "evidence_selection": False,
+        })
+
     def test_runs_each_case_as_an_independent_turn_and_records_hits(self):
         cases = [
             {

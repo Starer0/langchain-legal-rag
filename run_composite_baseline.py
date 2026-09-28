@@ -23,7 +23,7 @@ def _write_json(path, value):
 
 def run_baseline(
     run_id, *, service=None, cases_path=CASES_PATH, results_dir=RESULTS_DIR,
-    decompose=False,
+    decompose=False, profile=False, evidence_selection=True,
 ):
     """Evaluate each case as a fresh, single-turn conversation."""
     run_directory = Path(results_dir) / run_id
@@ -35,7 +35,11 @@ def run_baseline(
     if service is None:
         from rag_app import create_conversation_service
 
-        service = create_conversation_service(decompose=decompose)
+        service = create_conversation_service(
+            decompose=decompose,
+            profile=profile,
+            evidence_selection=evidence_selection,
+        )
 
     config = {
         "retrieval_k": int(os.getenv("RETRIEVAL_K", "8")),
@@ -44,6 +48,7 @@ def run_baseline(
         "query_rewrite": True,
         "history_turns": 0,
         "decomposition": decompose,
+        "evidence_selection": evidence_selection,
     }
     results = []
     for number, case in enumerate(cases, start=1):
@@ -60,6 +65,9 @@ def run_baseline(
         result["retrieval_question"] = response["retrieval_question"]
         if "subquestions" in response:
             result["subquestions"] = response["subquestions"]
+        for key in ("performance", "evidence_selection"):
+            if key in response:
+                result[key] = response[key]
         _write_json(run_directory / f"{case['id']}.json", result)
         results.append(result)
 
@@ -72,9 +80,19 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--decompose", action="store_true")
+    parser.add_argument("--profile", action="store_true")
+    parser.add_argument("--no-evidence-selection", action="store_true")
     parser.add_argument("--cases-path", type=Path, default=CASES_PATH)
     args = parser.parse_args(argv)
-    return run_baseline(args.run_id, decompose=args.decompose, cases_path=args.cases_path)
+    options = {
+        "decompose": args.decompose,
+        "cases_path": args.cases_path,
+    }
+    if args.profile:
+        options["profile"] = True
+    if args.no_evidence_selection:
+        options["evidence_selection"] = False
+    return run_baseline(args.run_id, **options)
 
 
 if __name__ == "__main__":

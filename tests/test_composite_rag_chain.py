@@ -3,6 +3,8 @@ import unittest
 from langchain_core.documents import Document
 from langchain_core.runnables import RunnableLambda
 
+from evidence_selector import EvidenceSelection
+from performance import TurnProfile
 from rag_pipeline_articles import CompositeRagChain
 
 
@@ -90,6 +92,54 @@ class CompositeRagChainTests(unittest.TestCase):
             "retrieval_question": "试用期工资？",
             "retrieval_questions": ["试用期工资？"],
         }), original)
+
+    def test_uses_evidence_selector_to_drop_unsupported_subquestion(self):
+        first = _doc("第三十条", "labor_contract_law")
+        second = _doc("第二十八条", "labor_arbitration_law")
+        unsupported = _doc("第四十四条", "labor_law")
+
+        class Selector:
+            def __init__(self):
+                self.calls = []
+
+            def select(self, original_question, questions, ranked_batches, top_n):
+                self.calls.append((original_question, questions, ranked_batches, top_n))
+                return EvidenceSelection(
+                    answerable=[True, True, False],
+                    selected_document_ids=["q1-d1", "q2-d1"],
+                    documents=[first, second],
+                )
+
+        selector = Selector()
+        profile = TurnProfile()
+        batches = {
+            "工资问题？": [first],
+            "仲裁问题？": [second],
+            "资料外问题？": [unsupported],
+        }
+        chain = CompositeRagChain(
+            single_chain=RunnableLambda(lambda _: self.fail("复合题不能走单查询")),
+            retriever=RunnableLambda(lambda state: batches[state["retrieval_question"]]),
+            reranker=RunnableLambda(lambda state: state["candidates"]),
+            answer_chain=RunnableLambda(lambda _: "统一回答"),
+            top_n=4,
+            evidence_selector=selector,
+        )
+
+        result = chain.invoke({
+            "question": "工资、仲裁和资料外问题？",
+            "retrieval_questions": ["工资问题？", "仲裁问题？", "资料外问题？"],
+            "_profile": profile,
+        })
+
+        self.assertEqual(len(selector.calls), 1)
+        self.assertEqual(
+            [source["article"] for source in result["sources"]],
+            ["第三十条", "第二十八条"],
+        )
+        self.assertEqual(result["evidence_selection"]["answerable"], [True, True, False])
+        self.assertEqual(profile.snapshot()["stages"]["evidence_selection"]["calls"], 1)
+        self.assertEqual(profile.snapshot()["model_calls"], 2)
 
 
 if __name__ == "__main__":
