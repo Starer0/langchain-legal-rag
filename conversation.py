@@ -62,6 +62,7 @@ class ConversationRagService:
         invoke = lambda: self.rag_chain.invoke(state)
         result = dict(profile.measure("pipeline", invoke) if profile else invoke())
         result["retrieval_question"] = retrieval_question
+        result["include_guide"] = plan.include_guide
         if subquestions is not None:
             result["subquestions"] = subquestions
 
