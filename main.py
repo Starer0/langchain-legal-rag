@@ -21,7 +21,7 @@ def run_cli(service, input_fn=input, output_fn=print):
             output_fn("拆分后的检索问题：")
             for index, subquestion in enumerate(result["subquestions"], start=1):
                 output_fn(f"{index}. {subquestion}")
-        output_fn("\nChroma 召回的候选法条（重排前）：")
+        output_fn("\n召回候选资料（重排前）：")
         for index, candidate in enumerate(result["candidates"], start=1):
             pages = ", ".join(str(page) for page in candidate["pages"])
             law_name = candidate.get("law_name", "")
@@ -56,6 +56,7 @@ def run_cli(service, input_fn=input, output_fn=print):
                 "rewrite": "改写",
                 "decompose": "拆分",
                 "chroma": "Chroma",
+                "bm25": "BM25",
                 "rerank": "Reranker",
                 "answer": "回答",
             }

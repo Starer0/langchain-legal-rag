@@ -1,8 +1,50 @@
 import unittest
 from unittest.mock import patch
 
+from langchain_core.documents import Document
+
 
 class CreateRagChainFilterTests(unittest.TestCase):
+    @patch.dict("os.environ", {"HYBRID_RETRIEVAL": "true", "RETRIEVAL_K": "2"}, clear=False)
+    @patch("builtins.print")
+    @patch("rag_app.build_rag_chain")
+    @patch("rag_app.BM25Retriever")
+    @patch("rag_app.open_corpus")
+    @patch("rag_app.OpenAIEmbeddings")
+    @patch("rag_app.ChatOpenAI")
+    @patch("rag_app.load_dotenv")
+    def test_hybrid_retriever_merges_filtered_vector_and_bm25_candidates(
+        self, load_dotenv, chat_openai, embeddings, open_corpus, bm25_class,
+        build_chain, print_output,
+    ):
+        import rag_app
+
+        vector_document = Document(
+            page_content="第二十条 试用期工资", metadata={
+                "law_id": "labor_contract_law", "version": "2012", "article": "第二十条",
+            },
+        )
+        bm25_document = Document(
+            page_content="第三十条 工资支付", metadata={
+                "law_id": "labor_contract_law", "version": "2012", "article": "第三十条",
+            },
+        )
+        store = open_corpus.return_value[0]
+        open_corpus.return_value = (store, {"article_count": 2}, [])
+        store.similarity_search.return_value = [vector_document]
+        bm25_class.from_vectorstore.return_value.search.return_value = [bm25_document]
+        build_chain.return_value = "shared-chain"
+
+        rag_app.create_rag_chain()
+        retriever = build_chain.call_args.args[0]
+        state = {"question": "试用期工资", "retrieval_question": "试用期工资"}
+
+        self.assertEqual(retriever.invoke(state), [vector_document, bm25_document])
+        self.assertEqual(store.similarity_search.call_args.kwargs["filter"], {"index_status": "active"})
+        bm25_class.from_vectorstore.return_value.search.assert_called_once_with(
+            "试用期工资", k=2, metadata_filter={"index_status": "active"}
+        )
+
     @patch("rag_app.load_guides")
     @patch("rag_app.RetrievalQuestionRewriter")
     @patch("rag_app.ChatOpenAI")

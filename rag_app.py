@@ -8,6 +8,7 @@ from langchain_core.runnables import RunnableLambda
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 from conversation import ConversationRagService
+from bm25_retriever import BM25Retriever, merge_retrieval_candidates
 from evidence_selector import EvidenceSelector
 from legal_corpus import (
     ingest_corpus, inspect_corpus_status, inspect_index_collections, load_guides,
@@ -40,6 +41,43 @@ def _embedding_config():
         "model": os.getenv("SILICONFLOW_EMBEDDING_MODEL", "BAAI/bge-m3"),
         "base_url": os.getenv("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1"),
     }
+
+
+def _create_candidate_retriever(
+    vectorstore, laws, candidate_k, filter_enabled, hybrid_retrieval, bm25_k,
+):
+    """Create vector-only retrieval, or add local BM25 candidates when enabled."""
+    if not hybrid_retrieval:
+        return RunnableLambda(
+            lambda state: measure(
+                state, "chroma",
+                lambda: vectorstore.similarity_search(
+                    state["retrieval_question"],
+                    k=candidate_k,
+                    filter=resolve_filter(state, laws, enabled=filter_enabled),
+                ),
+            )
+        )
+
+    bm25 = BM25Retriever.from_vectorstore(vectorstore)
+
+    def retrieve(state):
+        metadata_filter = resolve_filter(state, laws, enabled=filter_enabled)
+        vector_documents = measure(
+            state, "chroma",
+            lambda: vectorstore.similarity_search(
+                state["retrieval_question"], k=candidate_k, filter=metadata_filter,
+            ),
+        )
+        bm25_documents = measure(
+            state, "bm25",
+            lambda: bm25.search(
+                state["retrieval_question"], k=bm25_k, metadata_filter=metadata_filter,
+            ),
+        )
+        return merge_retrieval_candidates(vector_documents, bm25_documents)
+
+    return RunnableLambda(retrieve)
 
 
 def ingest_legal_corpus():
@@ -112,6 +150,8 @@ def create_rag_chain(
     print(f"加载法律知识库：{manifest['article_count']} 条，{len(laws)} 部法律")
 
     candidate_k = int(os.getenv("RETRIEVAL_K", "8"))
+    hybrid_retrieval = os.getenv("HYBRID_RETRIEVAL", "false").lower() == "true"
+    bm25_k = int(os.getenv("HYBRID_BM25_K", str(candidate_k)))
     rerank_top_n = int(os.getenv("RERANK_TOP_N", "4"))
     use_reranker = os.getenv("USE_RERANKER", "true").lower() == "true"
     filter_enabled = (
@@ -119,15 +159,8 @@ def create_rag_chain(
         if metadata_filter is None
         else metadata_filter
     )
-    retriever = RunnableLambda(
-        lambda state: measure(
-            state, "chroma",
-            lambda: vectorstore.similarity_search(
-                state["retrieval_question"],
-                k=candidate_k,
-                filter=resolve_filter(state, laws, enabled=filter_enabled),
-            ),
-        )
+    retriever = _create_candidate_retriever(
+        vectorstore, laws, candidate_k, filter_enabled, hybrid_retrieval, bm25_k,
     )
 
     if use_reranker:
@@ -264,18 +297,12 @@ def create_web_rag_turn():
     print(f"加载法律知识库：{manifest['article_count']} 条，{len(laws)} 部法律")
 
     candidate_k = int(os.getenv("RETRIEVAL_K", "8"))
+    hybrid_retrieval = os.getenv("HYBRID_RETRIEVAL", "false").lower() == "true"
+    bm25_k = int(os.getenv("HYBRID_BM25_K", str(candidate_k)))
     rerank_top_n = int(os.getenv("RERANK_TOP_N", "4"))
     filter_enabled = os.getenv("METADATA_FILTER", "true").lower() == "true"
-    retriever = RunnableLambda(
-        lambda state: measure(
-            state,
-            "chroma",
-            lambda: vectorstore.similarity_search(
-                state["retrieval_question"],
-                k=candidate_k,
-                filter=resolve_filter(state, laws, enabled=filter_enabled),
-            ),
-        )
+    retriever = _create_candidate_retriever(
+        vectorstore, laws, candidate_k, filter_enabled, hybrid_retrieval, bm25_k,
     )
 
     use_reranker = os.getenv("USE_RERANKER", "true").lower() == "true"
