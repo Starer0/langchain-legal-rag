@@ -56,7 +56,7 @@ class SiliconFlowRerankerTests(unittest.TestCase):
             Document(page_content="第三条", metadata={"article": "第三条"}),
         ]
 
-        ranked = reranker.rerank("试用期工资", documents)
+        ranked = reranker.rerank("试用期工资", documents, top_n=3)
 
         self.assertEqual(
             [doc.metadata["article"] for doc in ranked],
@@ -82,7 +82,7 @@ class SiliconFlowRerankerTests(unittest.TestCase):
                 "query": "试用期工资",
                 "documents": ["第一条", "第二条", "第三条"],
                 "return_documents": False,
-                "top_n": 2,
+                "top_n": 3,
             },
         )
         self.assertEqual(captured_request["timeout"], 12)

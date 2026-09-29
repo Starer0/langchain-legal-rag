@@ -1,6 +1,7 @@
 import json
 import re
 from operator import itemgetter
+from math import ceil
 
 import requests
 from langchain_core.documents import Document
@@ -38,11 +39,15 @@ class SiliconFlowReranker:
         self,
         question: str,
         documents: list[Document],
+        top_n: int | None = None,
     ) -> list[Document]:
         if not documents:
             return []
         if not self.api_key:
             raise ValueError("缺少 SILICONFLOW_API_KEY，无法调用 Reranker")
+        limit = self.top_n if top_n is None else top_n
+        if limit < 1:
+            raise ValueError("top_n 必须大于等于 1")
 
         response = self.post(
             self.endpoint,
@@ -55,7 +60,7 @@ class SiliconFlowReranker:
                 "query": question,
                 "documents": [doc.page_content for doc in documents],
                 "return_documents": False,
-                "top_n": min(self.top_n, len(documents)),
+                "top_n": min(limit, len(documents)),
             },
             timeout=self.timeout,
         )
@@ -199,6 +204,8 @@ class CompositeRagChain:
         candidates = []
         candidate_keys = set()
         ranked_batches = []
+        context_budget = max(self.top_n, len(questions))
+        per_question_top_n = max(2, ceil(context_budget / len(questions)))
         for question in questions:
             substate = {"question": question, "retrieval_question": question}
             if "_profile" in state:
@@ -209,7 +216,11 @@ class CompositeRagChain:
                 if key not in candidate_keys:
                     candidates.append(doc)
                     candidate_keys.add(key)
-            ranked_batches.append(self.reranker.invoke({**substate, "candidates": batch}))
+            ranked_batches.append(self.reranker.invoke({
+                **substate,
+                "candidates": batch,
+                "rerank_top_n": per_question_top_n,
+            }))
 
         selection = None
         if self.evidence_selector is not None:
@@ -218,16 +229,16 @@ class CompositeRagChain:
                     state,
                     "evidence_selection",
                     lambda: self.evidence_selector.select(
-                        state["question"], questions, ranked_batches, top_n=self.top_n
+                        state["question"], questions, ranked_batches, top_n=context_budget
                     ),
                 )
             except Exception:
                 selection = None
 
         if selection is not None:
-            selected = _take_unique(selection.documents, self.top_n)
+            selected = _take_unique(selection.documents, context_budget)
         else:
-            selected = _round_robin_select(ranked_batches, self.top_n)
+            selected = _round_robin_select(ranked_batches, context_budget)
 
         answer_state = {"question": state["question"], "docs": selected}
         answer = measure(

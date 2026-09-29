@@ -3,6 +3,7 @@
 import json
 import re
 from dataclasses import dataclass
+from math import ceil
 
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
@@ -39,8 +40,11 @@ class EvidenceSelector:
         self.max_chars = max_chars
 
     def select(self, original_question, questions, ranked_batches, top_n: int):
-        if len(questions) != len(ranked_batches) or top_n < 1:
+        if not questions or len(questions) != len(ranked_batches) or top_n < 1:
             return None
+        candidate_limit = max(
+            self.candidates_per_question, ceil(top_n / len(questions))
+        )
 
         document_map = {}
         lines = []
@@ -49,7 +53,7 @@ class EvidenceSelector:
         ):
             lines.append(f"子问题 {question_index}：{question}")
             for document_index, document in enumerate(
-                batch[:self.candidates_per_question], start=1
+                batch[:candidate_limit], start=1
             ):
                 document_id = f"q{question_index}-d{document_index}"
                 document_map[document_id] = (question_index, document)

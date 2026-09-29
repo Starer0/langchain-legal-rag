@@ -64,6 +64,30 @@ class EvidenceSelectorTests(unittest.TestCase):
 
         self.assertIsNone(selection)
 
+    def test_exposes_enough_candidates_to_fill_the_final_context(self):
+        model = FakeModel('''
+        {"subquestions":[
+          {"index":1,"answerable":true},
+          {"index":2,"answerable":true}
+        ],"selected_document_ids":["q1-d1","q1-d2","q1-d3","q2-d1","q2-d2"]}
+        ''')
+        first_batch = [
+            _doc("第一条", "资料一"), _doc("第二条", "资料二"), _doc("第三条", "资料三"),
+        ]
+        second_batch = [
+            _doc("第四条", "资料四"), _doc("第五条", "资料五"), _doc("第六条", "资料六"),
+        ]
+
+        selection = EvidenceSelector(model).select(
+            "两个子问题都需要多条证据", ["子问题一", "子问题二"],
+            [first_batch, second_batch], top_n=5,
+        )
+
+        self.assertIsNotNone(selection)
+        self.assertEqual(len(selection.documents), 5)
+        self.assertIn("q1-d3", str(model.prompts[0]))
+        self.assertIn("q2-d3", str(model.prompts[0]))
+
 
 if __name__ == "__main__":
     unittest.main()

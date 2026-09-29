@@ -9,7 +9,7 @@ DECOMPOSITION_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
         "判断问题中有几个彼此不同、回答时都需要法律依据的法律问题。"
-        "如果只有一个意图，返回一个问题；如果有多个，拆为最多四个独立、适合检索的问题。"
+        "如果只有一个意图，返回一个问题；如果有多个，拆为最多六个独立、适合检索的问题。"
         "不要把同一意图改写成多种同义问法。每个子问题只保留解决该法律点所必需的事实，"
         "不要把其他诉求和无关背景重复塞入每个问题。使用明确的法律概念："
         "问仲裁申请期限时写成“仲裁时效期间”，问申请书内容时写成“仲裁申请书应载明的事项”。"
@@ -42,7 +42,7 @@ class CompositeQuestionDecomposer:
             return [question]
         if (
             not isinstance(questions, list)
-            or not 1 <= len(questions) <= 4
+            or not 1 <= len(questions) <= 6
             or any(not isinstance(item, str) or not item.strip() for item in questions)
         ):
             return [question]

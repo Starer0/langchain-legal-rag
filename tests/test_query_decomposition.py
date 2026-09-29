@@ -47,13 +47,21 @@ class CompositeQuestionDecomposerTests(unittest.TestCase):
             "not json",
             '{"questions":[]}',
             '{"questions":["工资？","工资？"]}',
-            '{"questions":["a","b","c","d","e"]}',
+            '{"questions":["a","b","c","d","e","f","g"]}',
         ):
             with self.subTest(output=output):
                 self.assertEqual(
                     CompositeQuestionDecomposer(_Model(output)).decompose("原问题？"),
                     ["原问题？"],
                 )
+
+    def test_allows_six_distinct_subquestions(self):
+        output = '{"questions":["a？","b？","c？","d？","e？","f？"]}'
+
+        self.assertEqual(
+            CompositeQuestionDecomposer(_Model(output)).decompose("六个问题？"),
+            ["a？", "b？", "c？", "d？", "e？", "f？"],
+        )
 
 
 if __name__ == "__main__":

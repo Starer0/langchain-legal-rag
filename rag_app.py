@@ -89,8 +89,12 @@ def create_rag_chain(
             top_n=rerank_top_n,
         )
         def rerank(state):
+            options = (
+                {"top_n": state["rerank_top_n"]}
+                if "rerank_top_n" in state else {}
+            )
             operation = lambda: reranker_client.rerank(
-                state["retrieval_question"], state["candidates"]
+                state["retrieval_question"], state["candidates"], **options
             )
             # No candidates means no remote Reranker request.
             return measure(state, "rerank", operation) if state["candidates"] else operation()
