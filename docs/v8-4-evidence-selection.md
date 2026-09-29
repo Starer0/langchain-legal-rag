@@ -9,8 +9,8 @@
 可用以下命令对同一题集比较旧规则与新规则：
 
 ```text
-python run_composite_baseline.py --run-id <baseline> --decompose --profile --no-evidence-selection --cases-path evals/composite_evidence_selection_cases.json
-python run_composite_baseline.py --run-id <selector> --decompose --profile --cases-path evals/composite_evidence_selection_cases.json
+python run_composite_baseline.py --run-id <baseline> --decompose --profile --cases-path evals/composite_evidence_selection_cases.json
+python run_composite_baseline.py --run-id <selector> --decompose --profile --evidence-selection --cases-path evals/composite_evidence_selection_cases.json
 ```
 
 结果文件会保留各阶段耗时、最终来源，以及选择器的 `answerable` 判断和选中的资料编号。

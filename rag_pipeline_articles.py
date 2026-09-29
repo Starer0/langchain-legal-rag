@@ -204,8 +204,12 @@ class CompositeRagChain:
         candidates = []
         candidate_keys = set()
         ranked_batches = []
-        context_budget = max(self.top_n, len(questions))
-        per_question_top_n = max(2, ceil(context_budget / len(questions)))
+        if self.evidence_selector is None:
+            context_budget = self.top_n
+            per_question_top_n = self.top_n
+        else:
+            context_budget = max(self.top_n, len(questions))
+            per_question_top_n = max(2, ceil(context_budget / len(questions)))
         for question in questions:
             substate = {"question": question, "retrieval_question": question}
             if "_profile" in state:

@@ -150,6 +150,10 @@ class CompositeRagChainTests(unittest.TestCase):
         rerank_budgets = []
         answers = []
 
+        class Selector:
+            def select(self, *args, **kwargs):
+                return None
+
         def rerank(state):
             rerank_budgets.append(state["rerank_top_n"])
             return state["candidates"]
@@ -160,6 +164,7 @@ class CompositeRagChainTests(unittest.TestCase):
             reranker=RunnableLambda(rerank),
             answer_chain=RunnableLambda(lambda state: answers.append(state) or "统一回答"),
             top_n=5,
+            evidence_selector=Selector(),
         )
 
         result = chain.invoke({

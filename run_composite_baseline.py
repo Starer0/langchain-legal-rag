@@ -23,7 +23,7 @@ def _write_json(path, value):
 
 def run_baseline(
     run_id, *, service=None, cases_path=CASES_PATH, results_dir=RESULTS_DIR,
-    decompose=False, profile=False, evidence_selection=True,
+    decompose=False, profile=False, evidence_selection=False,
 ):
     """Evaluate each case as a fresh, single-turn conversation."""
     run_directory = Path(results_dir) / run_id
@@ -82,6 +82,7 @@ def main(argv=None):
     parser.add_argument("--decompose", action="store_true")
     parser.add_argument("--profile", action="store_true")
     parser.add_argument("--no-evidence-selection", action="store_true")
+    parser.add_argument("--evidence-selection", action="store_true")
     parser.add_argument("--cases-path", type=Path, default=CASES_PATH)
     args = parser.parse_args(argv)
     options = {
@@ -92,6 +93,8 @@ def main(argv=None):
         options["profile"] = True
     if args.no_evidence_selection:
         options["evidence_selection"] = False
+    if args.evidence_selection:
+        options["evidence_selection"] = True
     return run_baseline(args.run_id, **options)
 
 

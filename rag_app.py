@@ -49,7 +49,7 @@ def ingest_legal_corpus():
 
 
 def create_rag_chain(
-    metadata_filter=None, decompose=False, profile=False, evidence_selection=True,
+    metadata_filter=None, decompose=False, profile=False, evidence_selection=False,
 ):
     load_dotenv()
     model = ChatOpenAI(
@@ -158,7 +158,7 @@ def create_rag_chain(
     )
 
 
-def create_conversation_service(decompose=False, profile=False, evidence_selection=True):
+def create_conversation_service(decompose=False, profile=False, evidence_selection=False):
     """Create the CLI service with bounded in-memory conversation history."""
     load_dotenv()
     history_turns = int(os.getenv("HISTORY_TURNS", "4"))
@@ -171,8 +171,8 @@ def create_conversation_service(decompose=False, profile=False, evidence_selecti
     chain_options = {"decompose": True} if decompose else {}
     if profile:
         chain_options["profile"] = True
-    if not evidence_selection:
-        chain_options["evidence_selection"] = False
+    if evidence_selection:
+        chain_options["evidence_selection"] = True
     return ConversationRagService(
         rag_chain=create_rag_chain(**chain_options),
         rewriter=RetrievalQuestionRewriter(rewrite_model, load_guides()),
