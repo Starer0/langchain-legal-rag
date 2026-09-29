@@ -54,17 +54,21 @@ class MainCliTests(unittest.TestCase):
 
     @patch("main.run_cli")
     @patch("main.create_conversation_service")
-    def test_main_enables_composite_question_mode(self, create_service, run_cli_mock):
+    @patch("main.ensure_legal_corpus_ready")
+    def test_main_enables_composite_question_mode(self, ensure, create_service, run_cli_mock):
         main(["--decompose"])
 
+        ensure.assert_called_once_with()
         create_service.assert_called_once_with(decompose=True)
         run_cli_mock.assert_called_once_with(create_service.return_value)
 
     @patch("main.run_cli")
     @patch("main.create_conversation_service")
-    def test_main_enables_opt_in_profiling(self, create_service, run_cli_mock):
+    @patch("main.ensure_legal_corpus_ready")
+    def test_main_enables_opt_in_profiling(self, ensure, create_service, run_cli_mock):
         main(["--profile"])
 
+        ensure.assert_called_once_with()
         create_service.assert_called_once_with(decompose=False, profile=True)
         run_cli_mock.assert_called_once_with(create_service.return_value)
 

@@ -70,6 +70,16 @@ def inspect_legal_corpus():
     return status
 
 
+def ensure_legal_corpus_ready():
+    """Build the corpus only when the published index no longer matches its inputs."""
+    load_dotenv()
+    status = inspect_corpus_status(_embedding_config())
+    if status["needs_ingest"]:
+        print("知识库需要更新，正在导入资料。")
+        return ingest_legal_corpus()
+    return status
+
+
 def create_rag_chain(
     metadata_filter=None, decompose=False, profile=False, evidence_selection=False,
 ):

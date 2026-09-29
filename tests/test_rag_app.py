@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 
 
-class CreateRagChainTests(unittest.TestCase):
+class CreateRagChainFilterTests(unittest.TestCase):
     @patch("rag_app.load_guides")
     @patch("rag_app.RetrievalQuestionRewriter")
     @patch("rag_app.ChatOpenAI")
@@ -80,6 +80,31 @@ class CreateRagChainTests(unittest.TestCase):
                 ]
             },
         )
+
+
+class CreateRagChainBehaviorTests(unittest.TestCase):
+    @patch("rag_app.ingest_legal_corpus")
+    @patch("rag_app.inspect_corpus_status")
+    @patch("rag_app.load_dotenv")
+    def test_skips_ingest_when_published_index_is_current(self, load_dotenv, status, ingest):
+        import rag_app
+
+        status.return_value = {"needs_ingest": False}
+
+        self.assertEqual(rag_app.ensure_legal_corpus_ready(), {"needs_ingest": False})
+        ingest.assert_not_called()
+
+    @patch("rag_app.ingest_legal_corpus")
+    @patch("rag_app.inspect_corpus_status")
+    @patch("rag_app.load_dotenv")
+    def test_ingests_when_current_inputs_do_not_match_index(self, load_dotenv, status, ingest):
+        import rag_app
+
+        status.return_value = {"needs_ingest": True}
+        ingest.return_value = {"collection": "new-index"}
+
+        self.assertEqual(rag_app.ensure_legal_corpus_ready(), {"collection": "new-index"})
+        ingest.assert_called_once_with()
 
     @patch("builtins.print")
     @patch("rag_app.build_rag_chain")

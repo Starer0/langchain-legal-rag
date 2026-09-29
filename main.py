@@ -1,6 +1,9 @@
 import argparse
 
-from rag_app import create_conversation_service, ingest_legal_corpus, inspect_legal_corpus
+from rag_app import (
+    create_conversation_service, ensure_legal_corpus_ready, ingest_legal_corpus,
+    inspect_legal_corpus,
+)
 
 
 def run_cli(service, input_fn=input, output_fn=print):
@@ -96,6 +99,7 @@ def main(argv=None):
         return ingest_legal_corpus()
     if args.corpus_status:
         return inspect_legal_corpus()
+    ensure_legal_corpus_ready()
     service_options = {"decompose": args.decompose}
     if args.profile:
         service_options["profile"] = True
