@@ -160,6 +160,78 @@ def corpus_fingerprint(laws, embedding_config, catalog_path=CATALOG_PATH, guides
     return digest, files
 
 
+def _source_inventory(laws, guides, files):
+    inventory = []
+    for law in laws:
+        inventory.append({
+            "source_id": law["law_id"],
+            "source_type": "law",
+            "source_file": law["source_file"],
+            "version": law["version"],
+            "sha256": files[law["source_file"]],
+        })
+    for guide in guides:
+        inventory.append({
+            "source_id": guide["document_id"],
+            "source_type": "guide",
+            "source_file": guide["source_file"],
+            "version": guide["version"],
+            "sha256": files[guide["source_file"]],
+        })
+    return inventory
+
+
+def _status_source(source):
+    return {key: source[key] for key in (
+        "source_id", "source_type", "source_file", "version"
+    )}
+
+
+def inspect_corpus_status(embedding_config, catalog_path=CATALOG_PATH, db_dir=DB_DIR):
+    """Compare current corpus inputs with the last published manifest without writing data."""
+    laws = load_catalog(catalog_path)
+    guides = load_guides(catalog_path)
+    fingerprint, files = corpus_fingerprint(laws, embedding_config, catalog_path, guides)
+    current_sources = _source_inventory(laws, guides, files)
+    manifest_path = Path(db_dir) / "manifest.json"
+    if not manifest_path.exists():
+        return {
+            "state": "not_indexed",
+            "needs_ingest": True,
+            "changes": {
+                "added": [_status_source(source) for source in current_sources],
+                "modified": [],
+                "deleted": [],
+                "configuration_changed": False,
+            },
+        }
+
+    saved = json.loads(manifest_path.read_text(encoding="utf-8"))
+    saved_files = saved.get("files", {})
+    current_by_file = {source["source_file"]: source for source in current_sources}
+    added = [_status_source(source) for filename, source in current_by_file.items() if filename not in saved_files]
+    modified = [
+        _status_source(source) for filename, source in current_by_file.items()
+        if filename in saved_files and saved_files[filename] != source["sha256"]
+    ]
+    deleted = [{"source_file": filename} for filename in saved_files if filename not in current_by_file]
+    configuration_changed = (
+        saved.get("fingerprint") != fingerprint
+        and not (added or modified or deleted)
+    )
+    needs_ingest = saved.get("fingerprint") != fingerprint
+    return {
+        "state": "needs_ingest" if needs_ingest else "ready",
+        "needs_ingest": needs_ingest,
+        "changes": {
+            "added": added,
+            "modified": modified,
+            "deleted": deleted,
+            "configuration_changed": configuration_changed,
+        },
+    }
+
+
 def _store(embeddings, db_dir, collection):
     return Chroma(collection_name=collection, persist_directory=str(db_dir), embedding_function=embeddings)
 
@@ -175,6 +247,14 @@ def ingest_corpus(embeddings, embedding_config, catalog_path=CATALOG_PATH, db_di
         if saved["fingerprint"] == fingerprint:
             store = _store(embeddings, db_dir, saved["collection"])
             if store._collection.count() == saved.get("chunk_count", saved["article_count"]):
+                if "sources" not in saved:
+                    saved["sources"] = _source_inventory(laws, guides, files)
+                    temporary = db_dir / "manifest.pending.json"
+                    temporary.write_text(
+                        json.dumps(saved, ensure_ascii=False, indent=2) + "\n",
+                        encoding="utf-8",
+                    )
+                    temporary.replace(manifest_path)
                 return saved
     chunks = []
     counts = {}
@@ -210,6 +290,7 @@ def ingest_corpus(embeddings, embedding_config, catalog_path=CATALOG_PATH, db_di
     manifest = {
         "schema": SCHEMA_VERSION, "fingerprint": fingerprint, "collection": collection,
         "embedding": embedding_config, "files": files, "law_counts": counts,
+        "sources": _source_inventory(laws, guides, files),
         "article_count": sum(counts.values()), "guide_counts": guide_counts,
         "chunk_count": len(chunks), "created_at": datetime.now(timezone.utc).isoformat(),
     }

@@ -9,7 +9,9 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 from conversation import ConversationRagService
 from evidence_selector import EvidenceSelector
-from legal_corpus import ingest_corpus, load_guides, open_corpus, resolve_filter
+from legal_corpus import (
+    ingest_corpus, inspect_corpus_status, load_guides, open_corpus, resolve_filter,
+)
 from performance import measure
 from query_decomposition import CompositeQuestionDecomposer
 from query_rewrite import RetrievalQuestionRewriter
@@ -46,6 +48,26 @@ def ingest_legal_corpus():
     print(f"法律知识库已就绪：{manifest['article_count']} 条")
     print(f"分法律数量：{manifest['law_counts']}")
     return manifest
+
+
+def inspect_legal_corpus():
+    """Show whether the current corpus inputs still match the published index."""
+    load_dotenv()
+    status = inspect_corpus_status(_embedding_config())
+    labels = {
+        "ready": "知识库已就绪，无需重新导入。",
+        "needs_ingest": "知识库资料或配置已变化，需要重新导入。",
+        "not_indexed": "尚未建立知识库，需要先导入。",
+    }
+    print(labels[status["state"]])
+    for label, entries in (("新增资料", status["changes"]["added"]), (
+        "已修改资料", status["changes"]["modified"]
+    ), ("已移除资料", status["changes"]["deleted"])):
+        for entry in entries:
+            print(f"{label}：{entry['source_file']}")
+    if status["changes"]["configuration_changed"]:
+        print("Embedding 配置或资料目录信息已变化。")
+    return status
 
 
 def create_rag_chain(

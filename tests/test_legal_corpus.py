@@ -88,6 +88,45 @@ class CorpusIndexTests(unittest.TestCase):
     def open(self):
         return corpus.open_corpus(self.embeddings, "test-model", self.catalog, self.db)
 
+    def status(self):
+        return corpus.inspect_corpus_status("test-model", self.catalog, self.db)
+
+    def test_status_reports_all_sources_as_pending_before_first_ingest(self):
+        status = self.status()
+
+        self.assertEqual(status["state"], "not_indexed")
+        self.assertTrue(status["needs_ingest"])
+        self.assertEqual(status["changes"]["added"], [{
+            "source_id": "labor_contract_law",
+            "source_type": "law",
+            "source_file": "law.pdf",
+            "version": "2012-12-28",
+        }])
+
+    @patch("legal_corpus.PyPDFLoader")
+    def test_status_distinguishes_ready_modified_and_deleted_sources(self, loader):
+        loader.return_value.load.return_value = PAGES
+        self.ingest()
+
+        self.assertEqual(self.status(), {
+            "state": "ready",
+            "needs_ingest": False,
+            "changes": {"added": [], "modified": [], "deleted": [], "configuration_changed": False},
+        })
+
+        (self.root / "data" / "law.pdf").write_bytes(b"changed")
+        changed = self.status()
+        self.assertEqual(changed["state"], "needs_ingest")
+        self.assertEqual(changed["changes"]["modified"][0]["source_id"], "labor_contract_law")
+
+        replacement = {**LAW, "law_id": "labor_law", "law_name": "中华人民共和国劳动法", "aliases": ["劳动法"], "source_file": "replacement.pdf"}
+        (self.root / "data" / "law.pdf").unlink()
+        (self.root / "data" / "replacement.pdf").write_bytes(b"replacement")
+        self.catalog.write_text(json.dumps([replacement], ensure_ascii=False), encoding="utf-8")
+        deleted = self.status()
+        self.assertEqual(deleted["changes"]["added"][0]["source_id"], "labor_law")
+        self.assertEqual(deleted["changes"]["deleted"], [{"source_file": "law.pdf"}])
+
     @patch("legal_corpus.PyPDFLoader")
     def test_reimport_skips_embeddings_and_online_open_does_not_parse_pdf(self, loader):
         loader.return_value.load.return_value = PAGES
@@ -102,6 +141,21 @@ class CorpusIndexTests(unittest.TestCase):
         self.assertEqual(laws[0]["law_id"], "labor_contract_law")
         self.assertEqual(manifest["article_count"], 2)
         loader.assert_not_called()
+
+    @patch("legal_corpus.PyPDFLoader")
+    def test_reimport_backfills_source_inventory_without_reembedding(self, loader):
+        loader.return_value.load.return_value = PAGES
+        self.ingest()
+        manifest_path = self.db / "manifest.json"
+        saved = json.loads(manifest_path.read_text(encoding="utf-8"))
+        saved.pop("sources")
+        manifest_path.write_text(json.dumps(saved), encoding="utf-8")
+        calls = self.embeddings.document_calls
+
+        refreshed = self.ingest()
+
+        self.assertEqual(self.embeddings.document_calls, calls)
+        self.assertEqual(refreshed["sources"][0]["source_id"], "labor_contract_law")
 
     @patch("legal_corpus.PyPDFLoader")
     def test_failed_new_import_does_not_publish_over_previous_manifest(self, loader):

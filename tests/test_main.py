@@ -46,6 +46,12 @@ class MainCliTests(unittest.TestCase):
         main(["--ingest"])
         ingest.assert_called_once_with()
 
+    @patch("main.inspect_legal_corpus")
+    def test_main_reports_corpus_status_without_starting_chat(self, inspect):
+        main(["--corpus-status"])
+
+        inspect.assert_called_once_with()
+
     @patch("main.run_cli")
     @patch("main.create_conversation_service")
     def test_main_enables_composite_question_mode(self, create_service, run_cli_mock):

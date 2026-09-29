@@ -1,6 +1,6 @@
 import argparse
 
-from rag_app import create_conversation_service, ingest_legal_corpus
+from rag_app import create_conversation_service, ingest_legal_corpus, inspect_legal_corpus
 
 
 def run_cli(service, input_fn=input, output_fn=print):
@@ -77,6 +77,11 @@ def main(argv=None):
         help="导入或校验 data/laws.json 中登记的法律 PDF",
     )
     parser.add_argument(
+        "--corpus-status",
+        action="store_true",
+        help="检查资料是否变化，不修改知识库",
+    )
+    parser.add_argument(
         "--decompose",
         action="store_true",
         help="对复合问题分别检索与重排，再统一回答",
@@ -89,6 +94,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.ingest:
         return ingest_legal_corpus()
+    if args.corpus_status:
+        return inspect_legal_corpus()
     service_options = {"decompose": args.decompose}
     if args.profile:
         service_options["profile"] = True
