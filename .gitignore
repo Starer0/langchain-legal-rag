@@ -8,3 +8,4 @@ evals/results/
 .superpowers/
 *.pyc
 data/web_rag.sqlite3
+HANDOFF.md
