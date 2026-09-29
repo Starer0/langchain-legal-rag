@@ -52,6 +52,12 @@ class MainCliTests(unittest.TestCase):
 
         inspect.assert_called_once_with()
 
+    @patch("main.prune_stale_legal_indexes")
+    def test_main_prunes_stale_indexes_only_when_explicitly_requested(self, prune):
+        main(["--prune-stale-indexes"])
+
+        prune.assert_called_once_with()
+
     @patch("main.run_cli")
     @patch("main.create_conversation_service")
     @patch("main.ensure_legal_corpus_ready")

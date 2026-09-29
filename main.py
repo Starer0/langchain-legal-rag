@@ -2,7 +2,7 @@ import argparse
 
 from rag_app import (
     create_conversation_service, ensure_legal_corpus_ready, ingest_legal_corpus,
-    inspect_legal_corpus,
+    inspect_legal_corpus, prune_stale_legal_indexes,
 )
 
 
@@ -85,6 +85,11 @@ def main(argv=None):
         help="检查资料是否变化，不修改知识库",
     )
     parser.add_argument(
+        "--prune-stale-indexes",
+        action="store_true",
+        help="删除未被当前知识库使用的旧 legal_ 索引",
+    )
+    parser.add_argument(
         "--decompose",
         action="store_true",
         help="对复合问题分别检索与重排，再统一回答",
@@ -99,6 +104,8 @@ def main(argv=None):
         return ingest_legal_corpus()
     if args.corpus_status:
         return inspect_legal_corpus()
+    if args.prune_stale_indexes:
+        return prune_stale_legal_indexes()
     ensure_legal_corpus_ready()
     service_options = {"decompose": args.decompose}
     if args.profile:

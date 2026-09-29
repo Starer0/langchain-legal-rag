@@ -158,6 +158,25 @@ class CorpusIndexTests(unittest.TestCase):
         self.assertEqual(refreshed["sources"][0]["source_id"], "labor_contract_law")
 
     @patch("legal_corpus.PyPDFLoader")
+    def test_lists_and_prunes_only_stale_versioned_legal_collections(self, loader):
+        loader.return_value.load.return_value = PAGES
+        manifest = self.ingest()
+        client = corpus.chromadb.PersistentClient(path=str(self.db))
+        client.get_or_create_collection("legal_stale_version")
+        client.get_or_create_collection("langchain")
+
+        status = corpus.inspect_index_collections(self.db)
+
+        self.assertEqual(status["active"], manifest["collection"])
+        self.assertEqual(status["stale"], ["legal_stale_version"])
+        self.assertEqual(status["unmanaged"], ["langchain"])
+        self.assertEqual(corpus.prune_stale_legal_collections(self.db), ["legal_stale_version"])
+        self.assertEqual(
+            sorted(collection.name for collection in client.list_collections()),
+            sorted([manifest["collection"], "langchain"]),
+        )
+
+    @patch("legal_corpus.PyPDFLoader")
     def test_failed_new_import_does_not_publish_over_previous_manifest(self, loader):
         loader.return_value.load.return_value = PAGES
         first = self.ingest()

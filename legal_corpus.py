@@ -6,6 +6,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+import chromadb
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.documents import Document
@@ -230,6 +231,33 @@ def inspect_corpus_status(embedding_config, catalog_path=CATALOG_PATH, db_dir=DB
             "configuration_changed": configuration_changed,
         },
     }
+
+
+def inspect_index_collections(db_dir=DB_DIR):
+    """List the active, stale project-managed, and unmanaged Chroma collections."""
+    db_dir = Path(db_dir)
+    manifest_path = db_dir / "manifest.json"
+    if not manifest_path.exists():
+        return {"active": None, "stale": [], "unmanaged": []}
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    active = manifest["collection"]
+    client = chromadb.PersistentClient(path=str(db_dir))
+    names = sorted(collection.name for collection in client.list_collections())
+    stale = [name for name in names if name.startswith("legal_") and name != active]
+    unmanaged = [name for name in names if name != active and name not in stale]
+    return {"active": active, "stale": stale, "unmanaged": unmanaged}
+
+
+def prune_stale_legal_collections(db_dir=DB_DIR):
+    """Delete only stale project-managed collections after a manifest has selected one active index."""
+    status = inspect_index_collections(db_dir)
+    if status["active"] is None:
+        raise ValueError("尚未发布知识库，无法判断哪些索引可安全清理")
+    client = chromadb.PersistentClient(path=str(Path(db_dir)))
+    for name in status["stale"]:
+        client.delete_collection(name)
+    return status["stale"]
 
 
 def _store(embeddings, db_dir, collection):

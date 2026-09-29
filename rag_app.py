@@ -10,7 +10,8 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from conversation import ConversationRagService
 from evidence_selector import EvidenceSelector
 from legal_corpus import (
-    ingest_corpus, inspect_corpus_status, load_guides, open_corpus, resolve_filter,
+    ingest_corpus, inspect_corpus_status, inspect_index_collections, load_guides,
+    open_corpus, prune_stale_legal_collections, resolve_filter,
 )
 from performance import measure
 from query_decomposition import CompositeQuestionDecomposer
@@ -67,6 +68,12 @@ def inspect_legal_corpus():
             print(f"{label}：{entry['source_file']}")
     if status["changes"]["configuration_changed"]:
         print("Embedding 配置或资料目录信息已变化。")
+    collections = inspect_index_collections()
+    print(f"当前索引：{collections['active'] or '未建立'}")
+    if collections["stale"]:
+        print(f"可清理的旧索引：{', '.join(collections['stale'])}")
+    if collections["unmanaged"]:
+        print(f"保留的未知索引：{', '.join(collections['unmanaged'])}")
     return status
 
 
@@ -78,6 +85,16 @@ def ensure_legal_corpus_ready():
         print("知识库需要更新，正在导入资料。")
         return ingest_legal_corpus()
     return status
+
+
+def prune_stale_legal_indexes():
+    """Remove stale project-managed collections only when the user explicitly requests it."""
+    removed = prune_stale_legal_collections()
+    if removed:
+        print(f"已清理旧索引：{', '.join(removed)}")
+    else:
+        print("没有可清理的旧索引。")
+    return removed
 
 
 def create_rag_chain(
