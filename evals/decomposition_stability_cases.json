@@ -1,0 +1,22 @@
+[
+  {
+    "id": "two-intent-probation-period-and-wage",
+    "question": "我签了一年劳动合同，公司约定两个月试用期，并按转正工资的60%发工资：试用期约定是否合法，试用期工资标准又是什么？",
+    "expected_subquestion_count": 2
+  },
+  {
+    "id": "three-intent-holiday-overtime-arbitration",
+    "question": "国庆当天加班，公司只按正常工资发放；加班工资标准是什么、劳动仲裁时效多久、仲裁申请书要写明什么？",
+    "expected_subquestion_count": 3
+  },
+  {
+    "id": "four-intent-wage-overtime-arbitration",
+    "question": "公司少发试用期工资，又在法定节假日安排加班但未支付加班费；试用期工资标准是什么、节假日加班工资标准是什么、仲裁时效多久、仲裁申请书要写明什么？",
+    "expected_subquestion_count": 4
+  },
+  {
+    "id": "six-intent-probation-wage-overtime-arbitration",
+    "question": "我签了一年劳动合同，公司约定两个月试用期：试用期最长是否合法、试用期工资最低标准是什么、法定节假日加班工资怎样计算、违法约定试用期可要求什么赔偿、申请劳动仲裁的时效多久、申请书要写明什么？",
+    "expected_subquestion_count": 6
+  }
+]
