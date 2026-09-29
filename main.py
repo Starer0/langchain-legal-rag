@@ -100,6 +100,11 @@ def main(argv=None):
         action="store_true",
         help="显示本轮各阶段耗时和调用次数",
     )
+    parser.add_argument(
+        "--langgraph",
+        action="store_true",
+        help="使用 LangGraph 状态图运行单问题 RAG 学习路径",
+    )
     args = parser.parse_args(argv)
     if args.ingest:
         return ingest_legal_corpus()
@@ -107,10 +112,14 @@ def main(argv=None):
         return inspect_legal_corpus()
     if args.prune_stale_indexes:
         return prune_stale_legal_indexes()
+    if args.langgraph and args.decompose:
+        parser.error("--langgraph 暂不支持与 --decompose 同时使用")
     ensure_legal_corpus_ready()
     service_options = {"decompose": args.decompose}
     if args.profile:
         service_options["profile"] = True
+    if args.langgraph:
+        service_options["use_langgraph"] = True
     return run_cli(create_conversation_service(**service_options))
 
 

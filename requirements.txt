@@ -3,6 +3,7 @@ fastapi
 langchain-community
 langchain-core
 langchain-openai
+langgraph
 pypdf
 python-dotenv
 requests

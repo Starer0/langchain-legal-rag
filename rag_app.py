@@ -14,6 +14,7 @@ from legal_corpus import (
     ingest_corpus, inspect_corpus_status, inspect_index_collections, load_guides,
     open_corpus, prune_stale_legal_collections, resolve_filter,
 )
+from langgraph_rag import LangGraphConversationService, build_langgraph_rag
 from performance import measure
 from query_decomposition import CompositeQuestionDecomposer
 from query_rewrite import RetrievalQuestionRewriter
@@ -135,9 +136,7 @@ def prune_stale_legal_indexes():
     return removed
 
 
-def create_rag_chain(
-    metadata_filter=None, decompose=False, profile=False, evidence_selection=False,
-):
+def _create_rag_components(metadata_filter=None):
     load_dotenv()
     model = ChatOpenAI(
         model=os.getenv("MODEL_NAME", "deepseek-chat"),
@@ -214,6 +213,15 @@ def create_rag_chain(
 请给出清晰、谨慎的分项回答，并尽可能引用相关条文或页码。
 """)
 
+    return model, retriever, reranker, prompt, composite_prompt, rerank_top_n
+
+
+def create_rag_chain(
+    metadata_filter=None, decompose=False, profile=False, evidence_selection=False,
+):
+    model, retriever, reranker, prompt, composite_prompt, rerank_top_n = _create_rag_components(
+        metadata_filter
+    )
     single_chain = build_rag_chain(
         retriever,
         reranker,
@@ -255,7 +263,9 @@ def create_rag_chain(
     )
 
 
-def create_conversation_service(decompose=False, profile=False, evidence_selection=False):
+def create_conversation_service(
+    decompose=False, profile=False, evidence_selection=False, use_langgraph=False,
+):
     """Create the CLI service with bounded in-memory conversation history."""
     load_dotenv()
     history_turns = int(os.getenv("HISTORY_TURNS", "4"))
@@ -265,6 +275,18 @@ def create_conversation_service(decompose=False, profile=False, evidence_selecti
         base_url=os.getenv("DEEPSEEK_BASE_URL"),
         temperature=0,
     )
+    if use_langgraph:
+        if decompose:
+            raise ValueError("LangGraph 学习路径暂不支持复杂问题拆分")
+        model, retriever, reranker, prompt, _, _ = _create_rag_components()
+        graph = build_langgraph_rag(
+            RetrievalQuestionRewriter(rewrite_model, load_guides()),
+            retriever, reranker, prompt, model,
+        )
+        return LangGraphConversationService(
+            graph, InMemoryChatMessageHistory(), max_turns=history_turns, profile=profile,
+        )
+
     chain_options = {"decompose": True} if decompose else {}
     if profile:
         chain_options["profile"] = True
