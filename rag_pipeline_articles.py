@@ -133,6 +133,20 @@ def format_docs(docs: list[Document]) -> str:
     )
 
 
+def format_grouped_docs(questions, ranked_batches, selected) -> str:
+    """Keep each selected document attached to the subquestions that retrieved it."""
+    selected_keys = {_document_key(document) for document in selected}
+    groups = []
+    for index, (question, batch) in enumerate(zip(questions, ranked_batches), start=1):
+        group_documents = [
+            document for document in batch
+            if _document_key(document) in selected_keys
+        ]
+        evidence = format_docs(group_documents) if group_documents else "（本组没有入选资料）"
+        groups.append(f"【子问题 {index}】\n问题：{question}\n本组资料：\n{evidence}")
+    return "\n\n".join(groups)
+
+
 def format_sources(docs: list[Document]) -> list[dict[str, object]]:
     sources = []
 
@@ -244,7 +258,11 @@ class CompositeRagChain:
         else:
             selected = _round_robin_select(ranked_batches, context_budget)
 
-        answer_state = {"question": state["question"], "docs": selected}
+        answer_state = {
+            "question": state["question"],
+            "docs": selected,
+            "context": format_grouped_docs(questions, ranked_batches, selected),
+        }
         answer = measure(
             state, "answer", lambda: self.answer_chain.invoke(answer_state)
         )

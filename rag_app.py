@@ -116,6 +116,21 @@ def create_rag_chain(
 
 请给出清晰、谨慎的回答，并尽可能引用相关条文或页码。
 """)
+    composite_prompt = ChatPromptTemplate.from_template("""
+你是一名劳动法律法规知识问答助手。
+
+请按参考资料中的子问题顺序分别回答。每个部分只能使用该子问题组内的资料；
+不得把其他子问题组的资料作为本部分依据。某一组资料不足以支持回答时，
+请对该部分明确说“资料中没有足够依据”，不要自行编造。
+
+按子问题分组的参考资料：
+{context}
+
+用户问题：
+{question}
+
+请给出清晰、谨慎的分项回答，并尽可能引用相关条文或页码。
+""")
 
     single_chain = build_rag_chain(
         retriever,
@@ -130,10 +145,10 @@ def create_rag_chain(
 
     answer_chain = (
         {
-            "context": RunnableLambda(lambda state: format_docs(state["docs"])),
+            "context": RunnableLambda(lambda state: state["context"]),
             "question": RunnableLambda(lambda state: state["question"]),
         }
-        | prompt
+        | composite_prompt
         | model
         | StrOutputParser()
     )

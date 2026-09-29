@@ -93,6 +93,37 @@ class CompositeRagChainTests(unittest.TestCase):
             "retrieval_questions": ["试用期工资？"],
         }), original)
 
+    def test_passes_selected_evidence_grouped_by_subquestion_to_answer(self):
+        wage = _doc("工资证据", "labor_contract_law")
+        materials = _doc("材料证据", "labor_arbitration_law")
+        outside_scope = _doc("范围外证据", "labor_law")
+        batches = {
+            "工资问题？": [wage],
+            "材料问题？": [materials],
+            "资料外问题？": [outside_scope],
+        }
+        answers = []
+        chain = CompositeRagChain(
+            single_chain=RunnableLambda(lambda _: self.fail("复合题不能走单查询")),
+            retriever=RunnableLambda(lambda state: batches[state["retrieval_question"]]),
+            reranker=RunnableLambda(lambda state: state["candidates"]),
+            answer_chain=RunnableLambda(lambda state: answers.append(state) or "统一回答"),
+            top_n=5,
+        )
+
+        chain.invoke({
+            "question": "工资、材料和资料外问题？",
+            "retrieval_questions": ["工资问题？", "材料问题？", "资料外问题？"],
+        })
+
+        context = answers[0]["context"]
+        wage_group, materials_group, outside_scope_group = context.split("【子问题 ")[1:]
+        self.assertIn("工资证据", wage_group)
+        self.assertNotIn("材料证据", wage_group)
+        self.assertIn("材料证据", materials_group)
+        self.assertNotIn("范围外证据", materials_group)
+        self.assertIn("范围外证据", outside_scope_group)
+
     def test_uses_evidence_selector_to_drop_unsupported_subquestion(self):
         first = _doc("第三十条", "labor_contract_law")
         second = _doc("第二十八条", "labor_arbitration_law")
