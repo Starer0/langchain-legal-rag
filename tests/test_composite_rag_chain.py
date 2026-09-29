@@ -206,6 +206,43 @@ class CompositeRagChainTests(unittest.TestCase):
         self.assertEqual(len(result["sources"]), 6)
         self.assertEqual(len(answers[0]["docs"]), 6)
 
+    def test_keeps_two_documents_per_subquestion_for_six_question_default_flow(self):
+        questions = [f"子问题{index}？" for index in range(1, 7)]
+        batches = {
+            question: [
+                _doc(f"第{index}条-依据1"),
+                _doc(f"第{index}条-依据2"),
+                _doc(f"第{index}条-依据3"),
+            ]
+            for index, question in enumerate(questions, start=1)
+        }
+        rerank_budgets = []
+        chain = CompositeRagChain(
+            single_chain=RunnableLambda(lambda _: self.fail("复合题不能走单查询")),
+            retriever=RunnableLambda(lambda state: batches[state["retrieval_question"]]),
+            reranker=RunnableLambda(
+                lambda state: rerank_budgets.append(state["rerank_top_n"])
+                or state["candidates"]
+            ),
+            answer_chain=RunnableLambda(lambda _: "统一回答"),
+            top_n=5,
+        )
+
+        result = chain.invoke({
+            "question": "六个问题？", "retrieval_questions": questions,
+        })
+
+        self.assertEqual(rerank_budgets, [5, 5, 5, 5, 5, 5])
+        self.assertEqual(
+            [source["article"] for source in result["sources"]],
+            [
+                "第1条-依据1", "第2条-依据1", "第3条-依据1",
+                "第4条-依据1", "第5条-依据1", "第6条-依据1",
+                "第1条-依据2", "第2条-依据2", "第3条-依据2",
+                "第4条-依据2", "第5条-依据2", "第6条-依据2",
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

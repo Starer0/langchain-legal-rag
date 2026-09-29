@@ -13,6 +13,8 @@ from performance import measure
 ARTICLE_PATTERN = re.compile(
     r"(?m)^\s*第[一二三四五六七八九十百千万零〇0-9]+条"
 )
+COMPOSITE_MIN_DOCS_PER_QUESTION = 2
+COMPOSITE_MAX_CONTEXT_DOCS = 12
 
 
 class SiliconFlowReranker:
@@ -194,6 +196,14 @@ def _document_key(doc: Document):
     return (metadata.get("source"), metadata.get("article"), doc.page_content)
 
 
+def _composite_context_budget(base_top_n, question_count):
+    minimum_for_questions = min(
+        COMPOSITE_MAX_CONTEXT_DOCS,
+        question_count * COMPOSITE_MIN_DOCS_PER_QUESTION,
+    )
+    return max(base_top_n, minimum_for_questions)
+
+
 class CompositeRagChain:
     """Retrieve and rerank each distinct intent before one final answer."""
 
@@ -219,7 +229,7 @@ class CompositeRagChain:
         candidate_keys = set()
         ranked_batches = []
         if self.evidence_selector is None:
-            context_budget = self.top_n
+            context_budget = _composite_context_budget(self.top_n, len(questions))
             per_question_top_n = self.top_n
         else:
             context_budget = max(self.top_n, len(questions))
