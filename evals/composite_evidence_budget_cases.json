@@ -1,0 +1,55 @@
+[
+  {
+    "id": "three-intent-probation-overtime-limitation",
+    "question": "我在试用期内被按低于法定标准的工资发薪，又在法定节假日加班但未拿到加班费；若申请劳动仲裁，时效是多久？",
+    "retrieval_questions": [
+      "试用期工资最低标准是什么？",
+      "法定节假日加班工资标准是什么？",
+      "劳动争议申请仲裁的时效是多久？"
+    ],
+    "expected_articles": [
+      {"law_id": "labor_contract_law", "article": "第二十条"},
+      {"law_id": "labor_law", "article": "第四十四条"},
+      {"law_id": "labor_arbitration_law", "article": "第二十七条"}
+    ],
+    "expected_law_ids": ["labor_contract_law", "labor_law", "labor_arbitration_law"]
+  },
+  {
+    "id": "four-intent-expiry-compensation-arbitration",
+    "question": "固定期限劳动合同到期后公司不续签：我是否有经济补偿、补偿怎样计算、申请仲裁的时效是多久、申请书应写明什么？",
+    "retrieval_questions": [
+      "固定期限劳动合同到期后单位不续签，劳动者是否有经济补偿？",
+      "经济补偿如何计算？",
+      "劳动争议申请仲裁的时效是多久？",
+      "劳动仲裁申请书应当载明哪些事项？"
+    ],
+    "expected_articles": [
+      {"law_id": "labor_contract_law", "article": "第四十六条"},
+      {"law_id": "labor_contract_law", "article": "第四十七条"},
+      {"law_id": "labor_arbitration_law", "article": "第二十七条"},
+      {"law_id": "labor_arbitration_law", "article": "第二十八条"}
+    ],
+    "expected_law_ids": ["labor_contract_law", "labor_arbitration_law"]
+  },
+  {
+    "id": "six-intent-probation-wage-overtime-arbitration",
+    "question": "我签了一年劳动合同，公司约定两个月试用期：试用期最长是否合法、试用期工资最低标准是什么、法定节假日加班工资怎样计算、违法约定试用期可要求什么赔偿、申请劳动仲裁的时效多久、申请书要写明什么？",
+    "retrieval_questions": [
+      "一年期限劳动合同的试用期最长是多久？",
+      "试用期工资最低标准是什么？",
+      "法定节假日加班工资标准是什么？",
+      "违法约定试用期已经履行时，劳动者可以要求什么赔偿？",
+      "劳动争议申请仲裁的时效是多久？",
+      "劳动仲裁申请书应当载明哪些事项？"
+    ],
+    "expected_articles": [
+      {"law_id": "labor_contract_law", "article": "第十九条"},
+      {"law_id": "labor_contract_law", "article": "第二十条"},
+      {"law_id": "labor_law", "article": "第四十四条"},
+      {"law_id": "labor_contract_law", "article": "第八十三条"},
+      {"law_id": "labor_arbitration_law", "article": "第二十七条"},
+      {"law_id": "labor_arbitration_law", "article": "第二十八条"}
+    ],
+    "expected_law_ids": ["labor_contract_law", "labor_law", "labor_arbitration_law"]
+  }
+]

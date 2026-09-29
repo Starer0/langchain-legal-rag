@@ -22,3 +22,12 @@ python run_composite_baseline.py --run-id <selector> --decompose --profile --evi
 这种做法不删除某个子问题的资料，也不会增加模型调用次数：无依据资料仍可用于说明该子问题为什么无法从现有资料回答，同时不会成为其他子问题的依据。
 
 默认复杂问题的最终资料预算会随子问题数增加：保持 `RERANK_TOP_N` 的基础额度，同时每个子问题至少分得两条资料，最多 12 条。例如配置 Top 5 时，三题使用 6 条、六题使用 12 条；仍依照轮流、去重、顺延规则取证据。单问题不受影响。
+
+可用预先标注的子问题评测该预算规则，避免将拆分模型偶发合并子问题误当成资料预算的效果：
+
+```text
+python run_composite_budget_evaluation.py --run-id <fixed-five> --min-docs-per-question 0
+python run_composite_budget_evaluation.py --run-id <dynamic-two> --min-docs-per-question 2
+```
+
+这套题集是开发集。它记录最终来源命中、每题资料数和各阶段耗时；独立保留题集不用于选择预算参数。
