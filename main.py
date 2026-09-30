@@ -24,6 +24,16 @@ def display_node_update(node, update, output_fn=print):
         output_fn(f"  answer → {update['answer']}")
     elif node == "review":
         output_fn("  已收到继续指令 → 接下来重排和回答")
+    elif node == "tool_plan":
+        request = update.get("tool_request")
+        if request is None:
+            output_fn("  模型未请求工具 → 进入 RAG")
+        else:
+            output_fn(f"  模型提出工具调用 → {json.dumps(request.tool_calls, ensure_ascii=False)}")
+    elif node == "execute_tool":
+        output_fn(f"  Python 执行结果 → {json.dumps(update['tool_result'], ensure_ascii=False)}")
+    elif node == "tool_answer":
+        output_fn("  已生成工具结果答复")
 
 
 def run_cli(service, input_fn=input, output_fn=print, *, trace=False):
@@ -69,6 +79,12 @@ def run_cli(service, input_fn=input, output_fn=print, *, trace=False):
             output_fn("输入 /state 查看状态，/resume 继续；SQLite 模式下也可 q 退出后重启继续。")
             continue
 
+        if result.get("tool_result") is not None:
+            output_fn(f"\n日期工具结果：{json.dumps(result['tool_result'], ensure_ascii=False)}")
+            output_fn(f"\n回答：\n{result['answer']}")
+            display_performance(result.get("performance"), output_fn)
+            continue
+
         output_fn(f"\n检索问题：{result['retrieval_question']}")
         if len(result.get("subquestions", [])) > 1:
             output_fn("拆分后的检索问题：")
@@ -102,28 +118,21 @@ def run_cli(service, input_fn=input, output_fn=print, *, trace=False):
                 f"{source['article']}，PDF 第 {pages} 页"
                 f"{score_text}：{summary}"
             )
-        performance = result.get("performance")
-        if performance:
-            output_fn(f"\n总耗时：{performance['total_ms']:.2f} ms")
-            labels = {
-                "rewrite": "改写",
-                "decompose": "拆分",
-                "chroma": "Chroma",
-                "bm25": "BM25",
-                "rerank": "Reranker",
-                "answer": "回答",
-            }
-            for stage, label in labels.items():
-                if stage in performance["stages"]:
-                    item = performance["stages"][stage]
-                    output_fn(
-                        f"{label}：{item['duration_ms']:.2f} ms"
-                        f"（{item['calls']} 次）"
-                    )
-            output_fn(
-                f"模型调用：{performance['model_calls']} 次；"
-                f"Reranker 调用：{performance['reranker_calls']} 次"
-            )
+        display_performance(result.get("performance"), output_fn)
+
+
+def display_performance(performance, output_fn=print):
+    if not performance:
+        return
+    output_fn(f"\n总耗时：{performance['total_ms']:.2f} ms")
+    labels = {"tool_plan": "工具选择", "tool": "本地工具", "rewrite": "改写",
+              "decompose": "拆分", "chroma": "Chroma", "bm25": "BM25",
+              "rerank": "Reranker", "answer": "回答"}
+    for stage, label in labels.items():
+        if stage in performance["stages"]:
+            item = performance["stages"][stage]
+            output_fn(f"{label}：{item['duration_ms']:.2f} ms（{item['calls']} 次）")
+    output_fn(f"模型调用：{performance['model_calls']} 次；Reranker 调用：{performance['reranker_calls']} 次")
 
 
 def main(argv=None):
@@ -166,6 +175,7 @@ def main(argv=None):
     parser.add_argument("--thread-id", help="checkpoint 线程标识，默认 learning")
     parser.add_argument("--checkpoint-db", help="配合 --checkpoint 将快照存到指定 SQLite 文件；省略时使用内存")
     parser.add_argument("--pause-after-retrieve", action="store_true", help="配合 --checkpoint 在检索后暂停，输入 /resume 继续")
+    parser.add_argument("--tools", action="store_true", help="配合 --langgraph 启用日期工具调用学习模式")
     args = parser.parse_args(argv)
     if args.ingest:
         return ingest_legal_corpus()
@@ -177,6 +187,8 @@ def main(argv=None):
         parser.error("--langgraph 暂不支持与 --decompose 同时使用")
     if args.trace and not args.langgraph:
         parser.error("--trace 需要配合 --langgraph 使用")
+    if args.tools and not args.langgraph:
+        parser.error("--tools 需要配合 --langgraph 使用")
     if args.checkpoint and not args.langgraph:
         parser.error("--checkpoint 需要配合 --langgraph 使用")
     if args.checkpoint and args.profile:
@@ -199,6 +211,8 @@ def main(argv=None):
         service_options["checkpoint_db"] = args.checkpoint_db
     if args.pause_after_retrieve:
         service_options["pause_after_retrieve"] = True
+    if args.tools:
+        service_options["enable_tools"] = True
     service = create_conversation_service(**service_options)
     try:
         return run_cli(service, trace=True) if args.trace else run_cli(service)

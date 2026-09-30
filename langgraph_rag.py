@@ -10,6 +10,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
 from conversation import recent_complete_turns
+from date_tools import build_date_tool_nodes
 from performance import TurnProfile, measure
 from rag_pipeline_articles import format_docs, format_sources
 
@@ -24,11 +25,14 @@ class RagState(TypedDict, total=False):
     answer: str
     sources: list[dict]
     _profile: Any
+    tool_request: Any
+    tool_messages: list
+    tool_result: dict | None
 
 
 def build_langgraph_rag(
     rewriter, retriever, reranker, prompt, model, *, checkpointer=None,
-    pause_after_retrieve=False,
+    pause_after_retrieve=False, enable_tools=False,
 ):
     """Compile single-question RAG with an empty-candidate exit."""
     if pause_after_retrieve and checkpointer is None:
@@ -95,7 +99,20 @@ def build_langgraph_rag(
     graph.add_node("answer", answer)
     graph.add_node("no_evidence", no_evidence)
     graph.add_node("review", review)
-    graph.add_edge(START, "rewrite")
+    if enable_tools:
+        tool_plan, execute_tool, tool_answer = build_date_tool_nodes(model)
+        graph.add_node("tool_plan", tool_plan)
+        graph.add_node("execute_tool", execute_tool)
+        graph.add_node("tool_answer", tool_answer)
+        graph.add_edge(START, "tool_plan")
+        graph.add_conditional_edges(
+            "tool_plan", lambda state: "execute_tool" if state.get("tool_request") is not None else "rewrite",
+            {"execute_tool": "execute_tool", "rewrite": "rewrite"},
+        )
+        graph.add_edge("execute_tool", "tool_answer")
+        graph.add_edge("tool_answer", END)
+    else:
+        graph.add_edge(START, "rewrite")
     graph.add_edge("rewrite", "retrieve")
     graph.add_conditional_edges(
         "retrieve", route_candidates,
@@ -209,6 +226,7 @@ class LangGraphConversationService:
             state.update(
                 retrieval_question="", include_guide=None,
                 candidates=[], docs=[], answer="", sources=[],
+                tool_request=None, tool_messages=[], tool_result=None,
             )
         def invoke():
             return self._execute(state, state, on_node_update)
