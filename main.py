@@ -22,13 +22,15 @@ def display_node_update(node, update, output_fn=print):
     elif node == "no_evidence":
         output_fn("  candidates 为空 → 直接结束；跳过重排和回答模型")
         output_fn(f"  answer → {update['answer']}")
+    elif node == "review":
+        output_fn("  已收到继续指令 → 接下来重排和回答")
 
 
 def run_cli(service, input_fn=input, output_fn=print, *, trace=False):
     if getattr(service, "thread_id", None) is not None:
         database = getattr(service, "checkpoint_db", None)
         storage = f"SQLite checkpoint：{database}；重启后可读取快照，聊天历史仍为本次启动内存。" if database else "内存 checkpoint；退出后清空。"
-        output_fn(f"线程：{service.thread_id}；{storage} /state 查看最新状态，/checkpoints 查看快照历史。")
+        output_fn(f"线程：{service.thread_id}；{storage} /state 查看最新状态，/checkpoints 查看快照历史；/resume 继续暂停任务。")
     while True:
         question = input_fn("\n请输入问题，输入 q 退出：")
         if question.lower() == "q":
@@ -47,13 +49,25 @@ def run_cli(service, input_fn=input, output_fn=print, *, trace=False):
                 output_fn(json.dumps(value, ensure_ascii=False, indent=2) if value else "当前线程尚无快照。")
             continue
 
-        if trace:
-            result = service.ask(
-                question,
-                on_node_update=lambda node, update: display_node_update(node, update, output_fn),
-            )
-        else:
-            result = service.ask(question)
+        options = {"on_node_update": lambda node, update: display_node_update(node, update, output_fn)} if trace else {}
+        if question.strip() == "/resume" and getattr(service, "thread_id", None) is None:
+            output_fn("请使用 --langgraph --checkpoint 启用暂停恢复学习模式。")
+            continue
+        try:
+            result = service.resume(**options) if question.strip() == "/resume" else service.ask(question, **options)
+        except ValueError as error:
+            output_fn(str(error))
+            continue
+
+        if result.get("paused"):
+            output_fn(f"\n已暂停：检索问题为 {result['retrieval_question']}，尚未重排和生成回答。")
+            for index, candidate in enumerate(result["candidates"], start=1):
+                label = candidate.get("article") or candidate.get("section") or "资料"
+                content = candidate["content"].replace("\n", " ")
+                preview = content[:240] + ("……" if len(content) > 240 else "")
+                output_fn(f"{index}. {candidate.get('law_name', '')} {label}：{preview}")
+            output_fn("输入 /state 查看状态，/resume 继续；SQLite 模式下也可 q 退出后重启继续。")
+            continue
 
         output_fn(f"\n检索问题：{result['retrieval_question']}")
         if len(result.get("subquestions", [])) > 1:
@@ -151,6 +165,7 @@ def main(argv=None):
     parser.add_argument("--checkpoint", action="store_true", help="启用内存 checkpoint 学习模式")
     parser.add_argument("--thread-id", help="checkpoint 线程标识，默认 learning")
     parser.add_argument("--checkpoint-db", help="配合 --checkpoint 将快照存到指定 SQLite 文件；省略时使用内存")
+    parser.add_argument("--pause-after-retrieve", action="store_true", help="配合 --checkpoint 在检索后暂停，输入 /resume 继续")
     args = parser.parse_args(argv)
     if args.ingest:
         return ingest_legal_corpus()
@@ -168,6 +183,8 @@ def main(argv=None):
         parser.error("本轮 checkpoint 模式暂不支持 --profile")
     if args.checkpoint_db is not None and (not args.checkpoint or not args.checkpoint_db.strip()):
         parser.error("--checkpoint-db 需要配合 --checkpoint 使用，并且路径不能为空")
+    if args.pause_after_retrieve and not args.checkpoint:
+        parser.error("--pause-after-retrieve 需要配合 --langgraph --checkpoint 使用")
     if args.thread_id is not None and (not args.checkpoint or not args.thread_id.strip()):
         parser.error("--thread-id 需要配合 --checkpoint 使用，并且不能为空")
     ensure_legal_corpus_ready()
@@ -180,6 +197,8 @@ def main(argv=None):
         service_options.update(checkpoint=True, thread_id=args.thread_id or "learning")
     if args.checkpoint_db is not None:
         service_options["checkpoint_db"] = args.checkpoint_db
+    if args.pause_after_retrieve:
+        service_options["pause_after_retrieve"] = True
     service = create_conversation_service(**service_options)
     try:
         return run_cli(service, trace=True) if args.trace else run_cli(service)

@@ -7,6 +7,7 @@ from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnableLambda
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import Command, interrupt
 
 from conversation import recent_complete_turns
 from performance import TurnProfile, measure
@@ -25,8 +26,13 @@ class RagState(TypedDict, total=False):
     _profile: Any
 
 
-def build_langgraph_rag(rewriter, retriever, reranker, prompt, model, *, checkpointer=None):
+def build_langgraph_rag(
+    rewriter, retriever, reranker, prompt, model, *, checkpointer=None,
+    pause_after_retrieve=False,
+):
     """Compile single-question RAG with an empty-candidate exit."""
+    if pause_after_retrieve and checkpointer is None:
+        raise ValueError("检索后暂停需要 checkpoint")
     answer_chain = (
         {
             "context": RunnableLambda(lambda state: format_docs(state["docs"])),
@@ -54,7 +60,17 @@ def build_langgraph_rag(rewriter, retriever, reranker, prompt, model, *, checkpo
         return {"docs": reranker.invoke(state)}
 
     def route_candidates(state: RagState):
-        return "rerank" if state["candidates"] else "no_evidence"
+        if not state["candidates"]:
+            return "no_evidence"
+        return "review" if pause_after_retrieve else "rerank"
+
+    def review(state: RagState):
+        # This node restarts on resume. Keep paid/external operations in other nodes.
+        interrupt({
+            "message": "检索已完成，输入 /resume 继续重排和回答。",
+            "candidate_count": len(state["candidates"]),
+        })
+        return {}
 
     def no_evidence(state: RagState):
         return {
@@ -78,12 +94,14 @@ def build_langgraph_rag(rewriter, retriever, reranker, prompt, model, *, checkpo
     graph.add_node("rerank", rerank)
     graph.add_node("answer", answer)
     graph.add_node("no_evidence", no_evidence)
+    graph.add_node("review", review)
     graph.add_edge(START, "rewrite")
     graph.add_edge("rewrite", "retrieve")
     graph.add_conditional_edges(
         "retrieve", route_candidates,
-        {"rerank": "rerank", "no_evidence": "no_evidence"},
+        {"rerank": "rerank", "review": "review", "no_evidence": "no_evidence"},
     )
+    graph.add_edge("review", "rerank")
     graph.add_edge("rerank", "answer")
     graph.add_edge("answer", END)
     graph.add_edge("no_evidence", END)
@@ -128,10 +146,55 @@ class LangGraphConversationService:
             for snapshot in self.graph.get_state_history(self._checkpoint_config())
         ]
 
+    def _execute(self, graph_input, initial_state, on_node_update=None):
+        config_options = {"config": self._checkpoint_config()} if self.thread_id is not None else {}
+        if on_node_update is None:
+            result = dict(self.graph.invoke(graph_input, **config_options))
+        else:
+            result = dict(initial_state)
+            for event in self.graph.stream(graph_input, stream_mode="updates", **config_options):
+                for node, update in event.items():
+                    if node == "__interrupt__":
+                        continue
+                    # A node returning {} is surfaced as None by updates streaming.
+                    update = update or {}
+                    result.update(update)
+                    on_node_update(node, update)
+        if self.thread_id is not None:
+            snapshot = self.graph.get_state(self._checkpoint_config())
+            result = dict(snapshot.values)
+            pending = _interrupt_values(snapshot)
+            if pending:
+                return {
+                    "paused": True, "interrupts": pending,
+                    "question": result["question"],
+                    "retrieval_question": result["retrieval_question"],
+                    "candidates": format_sources(result["candidates"]),
+                }
+        return result
+
+    def _save_completed_turn(self, question, answer):
+        self.history.add_user_message(question)
+        self.history.add_ai_message(answer)
+        self.history.messages[:] = recent_complete_turns(self.history.messages, self.max_turns)
+
+    def resume(self, *, on_node_update=None):
+        snapshot = self.graph.get_state(self._checkpoint_config())
+        if not _interrupt_values(snapshot):
+            raise ValueError("当前线程没有等待继续的暂停任务。")
+        result = self._execute(Command(resume=True), snapshot.values, on_node_update)
+        if not result.get("paused"):
+            self._save_completed_turn(result["question"], result["answer"])
+        return result
+
     def ask(self, question: str, *, on_node_update=None) -> dict:
         original_question = question.strip()
         if not original_question:
             raise ValueError("问题不能为空")
+        if self.thread_id is not None:
+            snapshot = self.graph.get_state(self._checkpoint_config())
+            if _interrupt_values(snapshot):
+                raise ValueError("当前线程有暂停任务，请先输入 /resume，或退出后换一个 thread_id。")
 
         started = perf_counter()
         profile = TurnProfile() if self.profile else None
@@ -147,28 +210,21 @@ class LangGraphConversationService:
                 retrieval_question="", include_guide=None,
                 candidates=[], docs=[], answer="", sources=[],
             )
-        config_options = {"config": self._checkpoint_config()} if self.thread_id is not None else {}
         def invoke():
-            if on_node_update is None:
-                return self.graph.invoke(state, **config_options)
-            result = dict(state)
-            for event in self.graph.stream(state, stream_mode="updates", **config_options):
-                for node, update in event.items():
-                    result.update(update)
-                    on_node_update(node, update)
-            return result
+            return self._execute(state, state, on_node_update)
 
         result = dict(profile.measure("pipeline", invoke) if profile else invoke())
-        self.history.add_user_message(original_question)
-        self.history.add_ai_message(result["answer"])
-        self.history.messages[:] = recent_complete_turns(
-            self.history.messages, self.max_turns
-        )
+        if not result.get("paused"):
+            self._save_completed_turn(original_question, result["answer"])
         if profile:
             result["performance"] = profile.snapshot(
                 total_ms=(perf_counter() - started) * 1000
             )
         return result
+
+
+def _interrupt_values(snapshot):
+    return [item.value for task in snapshot.tasks for item in task.interrupts]
 
 
 def _checkpoint_summary(snapshot):
@@ -177,6 +233,7 @@ def _checkpoint_summary(snapshot):
         "checkpoint_id": snapshot.config["configurable"].get("checkpoint_id"),
         "step": (snapshot.metadata or {}).get("step"),
         "next": list(snapshot.next),
+        "interrupts": _interrupt_values(snapshot),
         "question": values.get("question"),
         "retrieval_question": values.get("retrieval_question"),
         "include_guide": values.get("include_guide"),

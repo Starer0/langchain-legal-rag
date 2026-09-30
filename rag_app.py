@@ -268,13 +268,15 @@ def create_rag_chain(
 
 def create_conversation_service(
     decompose=False, profile=False, evidence_selection=False, use_langgraph=False,
-    checkpoint=False, thread_id="learning", checkpoint_db=None,
+    checkpoint=False, thread_id="learning", checkpoint_db=None, pause_after_retrieve=False,
 ):
     """Create the CLI service with bounded in-memory conversation history."""
     if checkpoint and (not use_langgraph or profile or not thread_id.strip()):
         raise ValueError("checkpoint 需要 LangGraph 与非空 thread_id，本轮暂不支持 --profile")
     if checkpoint_db is not None and (not checkpoint or not str(checkpoint_db).strip()):
         raise ValueError("checkpoint_db 需要启用 checkpoint，并且路径不能为空")
+    if pause_after_retrieve and not checkpoint:
+        raise ValueError("检索后暂停需要启用 checkpoint")
     load_dotenv()
     history_turns = int(os.getenv("HISTORY_TURNS", "4"))
     rewrite_model = ChatOpenAI(
@@ -302,6 +304,7 @@ def create_conversation_service(
                 RetrievalQuestionRewriter(rewrite_model, load_guides()),
                 retriever, reranker, prompt, model,
                 **({"checkpointer": saver} if checkpoint else {}),
+                **({"pause_after_retrieve": True} if pause_after_retrieve else {}),
             )
             return LangGraphConversationService(
                 graph, InMemoryChatMessageHistory(), max_turns=history_turns, profile=profile,
