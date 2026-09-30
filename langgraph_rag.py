@@ -26,7 +26,7 @@ class RagState(TypedDict, total=False):
 
 
 def build_langgraph_rag(rewriter, retriever, reranker, prompt, model):
-    """Compile the fixed rewrite → retrieve → rerank → answer graph."""
+    """Compile single-question RAG with an empty-candidate exit."""
     answer_chain = (
         {
             "context": RunnableLambda(lambda state: format_docs(state["docs"])),
@@ -53,6 +53,17 @@ def build_langgraph_rag(rewriter, retriever, reranker, prompt, model):
     def rerank(state: RagState):
         return {"docs": reranker.invoke(state)}
 
+    def route_candidates(state: RagState):
+        return "rerank" if state["candidates"] else "no_evidence"
+
+    def no_evidence(state: RagState):
+        return {
+            "answer": "资料中没有足够依据。",
+            "candidates": [],
+            "docs": [],
+            "sources": [],
+        }
+
     def answer(state: RagState):
         documents = state["docs"]
         return {
@@ -66,11 +77,16 @@ def build_langgraph_rag(rewriter, retriever, reranker, prompt, model):
     graph.add_node("retrieve", retrieve)
     graph.add_node("rerank", rerank)
     graph.add_node("answer", answer)
+    graph.add_node("no_evidence", no_evidence)
     graph.add_edge(START, "rewrite")
     graph.add_edge("rewrite", "retrieve")
-    graph.add_edge("retrieve", "rerank")
+    graph.add_conditional_edges(
+        "retrieve", route_candidates,
+        {"rerank": "rerank", "no_evidence": "no_evidence"},
+    )
     graph.add_edge("rerank", "answer")
     graph.add_edge("answer", END)
+    graph.add_edge("no_evidence", END)
     return graph.compile()
 
 

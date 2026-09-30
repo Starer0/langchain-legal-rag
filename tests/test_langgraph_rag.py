@@ -9,6 +9,43 @@ from query_rewrite import RetrievalPlan
 
 
 class LangGraphRagTests(unittest.TestCase):
+    def test_empty_candidates_take_no_evidence_branch_without_rerank_or_answer_model(self):
+        from langgraph_rag import build_langgraph_rag, LangGraphConversationService
+
+        for observe in (False, True):
+            with self.subTest(observe=observe):
+                rewriter = Mock()
+                rewriter.rewrite.return_value = RetrievalPlan("未知法律第一条", False)
+                retrieve = Mock(return_value=[])
+                rerank = Mock(side_effect=AssertionError("空候选不应调用重排"))
+                answer = Mock(side_effect=AssertionError("空候选不应调用回答模型"))
+                graph = build_langgraph_rag(
+                    rewriter,
+                    RunnableLambda(retrieve),
+                    RunnableLambda(rerank),
+                    RunnableLambda(lambda state: state["question"]),
+                    RunnableLambda(answer),
+                )
+                history = InMemoryChatMessageHistory()
+                service = LangGraphConversationService(graph, history, profile=True)
+                events = []
+                options = {"on_node_update": lambda node, update: events.append(node)} if observe else {}
+
+                result = service.ask("未知法律第一条？", **options)
+
+                self.assertEqual(result["answer"], "资料中没有足够依据。")
+                self.assertEqual(result["candidates"], [])
+                self.assertEqual(result["sources"], [])
+                self.assertEqual(result["docs"], [])
+                self.assertEqual(result["performance"]["model_calls"], 1)
+                self.assertEqual(result["performance"]["reranker_calls"], 0)
+                retrieve.assert_called_once()
+                rerank.assert_not_called()
+                answer.assert_not_called()
+                self.assertEqual(history.messages[-1].content, result["answer"])
+                if observe:
+                    self.assertEqual(events, ["rewrite", "retrieve", "no_evidence"])
+
     def test_stream_failure_does_not_save_a_partial_conversation(self):
         from langgraph_rag import LangGraphConversationService
 

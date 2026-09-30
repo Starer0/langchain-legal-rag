@@ -18,6 +18,9 @@ def display_node_update(node, update, output_fn=print):
         output_fn(f"  docs → {len(update['docs'])} 条重排资料")
     elif node == "answer":
         output_fn(f"  answer → 已生成；sources → {len(update['sources'])} 条来源")
+    elif node == "no_evidence":
+        output_fn("  candidates 为空 → 直接结束；跳过重排和回答模型")
+        output_fn(f"  answer → {update['answer']}")
 
 
 def run_cli(service, input_fn=input, output_fn=print, *, trace=False):

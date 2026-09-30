@@ -2,7 +2,7 @@
 
 ## 学习目标
 
-这一版不增加 Agent、不增加工具调用，也不改变检索策略。目标是把原先隐藏在函数调用里的单问题 RAG 流程，改写成明确的 LangGraph 状态图。
+这一版不增加 Agent、不增加工具调用。目标是把原先隐藏在函数调用里的单问题 RAG 流程，改写成明确的 LangGraph 状态图。V11.2 增加了空候选时的条件分支。
 
 ```text
 START
@@ -10,12 +10,8 @@ START
 rewrite
   ↓
 retrieve
-  ↓
-rerank
-  ↓
-answer
-  ↓
-END
+  ├─ 有候选 → rerank → answer → END
+  └─ 无候选 → no_evidence → END
 ```
 
 ## State 是什么
@@ -52,7 +48,7 @@ python main.py --langgraph
 python main.py --langgraph --profile
 ```
 
-`--langgraph` 当前只支持单问题流程，不能和 `--decompose` 同时使用。复杂问题拆分、循环重试、人工确认和 checkpoint 会在理解这个固定图之后再逐项加入。
+`--langgraph` 当前只支持单问题流程，不能和 `--decompose` 同时使用。复杂问题拆分、循环重试、人工确认和 checkpoint 可以在理解这个图之后再逐项加入。
 
 ## V11.1：实时观察节点更新
 
@@ -80,4 +76,28 @@ python main.py --langgraph --trace
 
 ## 等价性验证
 
-测试使用同一套伪 Retriever、Reranker、Prompt 和模型，对比图路径与原有单问题链路。两者的回答、候选资料和最终来源必须相同。这验证了本版本改变的是流程表达方式，而不是问答逻辑。
+有候选时，测试使用同一套伪 Retriever、Reranker、Prompt 和模型，对比图路径与原有单问题链路。两者的回答、候选资料和最终来源必须相同。
+
+## V11.2：条件边与空候选出口
+
+`retrieve` 完成后，条件函数 `route_candidates` 检查 `candidates` 是否为空，并选择下一节点。代码用 `add_conditional_edges` 表达这个分支；条件函数是普通 Python 函数，不调用模型。
+
+候选为空时，`no_evidence` 节点返回固定回答“资料中没有足够依据。”以及空的候选、重排资料和来源列表。改写模型仍然调用一次，但不再调用 Reranker 或回答模型。
+
+可以用相同命令观察：
+
+```powershell
+python main.py --langgraph --trace --profile
+```
+
+输入一个明确限定到未知法律的例子：
+
+```text
+《不存在的示例法》第一条是什么？
+```
+
+现有 metadata 过滤会将该法律范围设为未知 ID，活动索引内没有匹配资料，因此得到空候选。应看到 `rewrite`、`retrieve`、`no_evidence`，而不会看到 `rerank` 和 `answer`。
+
+这不是语义相关性判断。一般资料外问题仍可能检索到非空候选；这个分支不会删除它们，也不会根据分数判断是否可答。检索异常同样不会被当作空候选，而是继续报错。
+
+测试同时覆盖普通执行与节点更新流，验证空候选的执行路径、固定回答、历史保存和模型调用次数。有候选路径的既有等价性测试继续通过。
