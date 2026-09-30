@@ -1,5 +1,6 @@
 import argparse
 import json
+from date_tools import MAX_TOOL_CALLS
 
 from rag_app import (
     create_conversation_service, ensure_legal_corpus_ready, ingest_legal_corpus,
@@ -32,6 +33,13 @@ def display_node_update(node, update, output_fn=print):
             output_fn(f"  模型提出工具调用 → {json.dumps(request.tool_calls, ensure_ascii=False)}")
     elif node == "execute_tool":
         output_fn(f"  Python 执行结果 → {json.dumps(update['tool_result'], ensure_ascii=False)}")
+        output_fn(f"  已完成工具调用：{update.get('tool_call_count', 0)}/{update.get('tool_call_limit', MAX_TOOL_CALLS)}")
+    elif node == "tool_continue":
+        request = update.get("tool_request")
+        if request is not None:
+            output_fn(f"  模型读过工具结果后继续请求 → {json.dumps(request.tool_calls, ensure_ascii=False)}")
+        else:
+            output_fn("  模型决定结束工具调用，给出最终答复")
     elif node == "tool_answer":
         output_fn("  已生成工具结果答复")
 
@@ -80,7 +88,10 @@ def run_cli(service, input_fn=input, output_fn=print, *, trace=False):
             continue
 
         if result.get("tool_result") is not None:
-            output_fn(f"\n日期工具结果：{json.dumps(result['tool_result'], ensure_ascii=False)}")
+            for index, tool_result in enumerate(result.get("tool_results", []), start=1):
+                output_fn(f"\n日期工具结果 {index}：{json.dumps(tool_result, ensure_ascii=False)}")
+            if result["tool_result"].get("error"):
+                output_fn(f"\n工具错误：{json.dumps(result['tool_result'], ensure_ascii=False)}")
             output_fn(f"\n回答：\n{result['answer']}")
             display_performance(result.get("performance"), output_fn)
             continue
@@ -125,7 +136,7 @@ def display_performance(performance, output_fn=print):
     if not performance:
         return
     output_fn(f"\n总耗时：{performance['total_ms']:.2f} ms")
-    labels = {"tool_plan": "工具选择", "tool": "本地工具", "rewrite": "改写",
+    labels = {"tool_plan": "工具选择", "tool_continue": "工具后决策", "tool": "本地工具", "rewrite": "改写",
               "decompose": "拆分", "chroma": "Chroma", "bm25": "BM25",
               "rerank": "Reranker", "answer": "回答"}
     for stage, label in labels.items():
@@ -176,6 +187,7 @@ def main(argv=None):
     parser.add_argument("--checkpoint-db", help="配合 --checkpoint 将快照存到指定 SQLite 文件；省略时使用内存")
     parser.add_argument("--pause-after-retrieve", action="store_true", help="配合 --checkpoint 在检索后暂停，输入 /resume 继续")
     parser.add_argument("--tools", action="store_true", help="配合 --langgraph 启用日期工具调用学习模式")
+    parser.add_argument("--agent-loop", action="store_true", help="配合 --tools 启用最多两次工具调用的循环")
     args = parser.parse_args(argv)
     if args.ingest:
         return ingest_legal_corpus()
@@ -189,6 +201,8 @@ def main(argv=None):
         parser.error("--trace 需要配合 --langgraph 使用")
     if args.tools and not args.langgraph:
         parser.error("--tools 需要配合 --langgraph 使用")
+    if args.agent_loop and not args.tools:
+        parser.error("--agent-loop 需要配合 --langgraph --tools 使用")
     if args.checkpoint and not args.langgraph:
         parser.error("--checkpoint 需要配合 --langgraph 使用")
     if args.checkpoint and args.profile:
@@ -213,6 +227,8 @@ def main(argv=None):
         service_options["pause_after_retrieve"] = True
     if args.tools:
         service_options["enable_tools"] = True
+    if args.agent_loop:
+        service_options["agent_loop"] = True
     service = create_conversation_service(**service_options)
     try:
         return run_cli(service, trace=True) if args.trace else run_cli(service)

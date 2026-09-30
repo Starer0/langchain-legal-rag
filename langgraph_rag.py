@@ -10,7 +10,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
 from conversation import recent_complete_turns
-from date_tools import build_date_tool_nodes
+from date_tools import MAX_TOOL_CALLS, build_date_tool_nodes
 from performance import TurnProfile, measure
 from rag_pipeline_articles import format_docs, format_sources
 
@@ -28,15 +28,20 @@ class RagState(TypedDict, total=False):
     tool_request: Any
     tool_messages: list
     tool_result: dict | None
+    tool_results: list[dict]
+    tool_call_count: int
+    tool_call_limit: int
 
 
 def build_langgraph_rag(
     rewriter, retriever, reranker, prompt, model, *, checkpointer=None,
-    pause_after_retrieve=False, enable_tools=False,
+    pause_after_retrieve=False, enable_tools=False, agent_loop=False,
 ):
     """Compile single-question RAG with an empty-candidate exit."""
     if pause_after_retrieve and checkpointer is None:
         raise ValueError("检索后暂停需要 checkpoint")
+    if agent_loop and not enable_tools:
+        raise ValueError("工具循环需要启用 tools")
     answer_chain = (
         {
             "context": RunnableLambda(lambda state: format_docs(state["docs"])),
@@ -100,7 +105,7 @@ def build_langgraph_rag(
     graph.add_node("no_evidence", no_evidence)
     graph.add_node("review", review)
     if enable_tools:
-        tool_plan, execute_tool, tool_answer = build_date_tool_nodes(model)
+        tool_plan, execute_tool, tool_answer, tool_continue = build_date_tool_nodes(model, agent_loop=agent_loop)
         graph.add_node("tool_plan", tool_plan)
         graph.add_node("execute_tool", execute_tool)
         graph.add_node("tool_answer", tool_answer)
@@ -109,7 +114,19 @@ def build_langgraph_rag(
             "tool_plan", lambda state: "execute_tool" if state.get("tool_request") is not None else "rewrite",
             {"execute_tool": "execute_tool", "rewrite": "rewrite"},
         )
-        graph.add_edge("execute_tool", "tool_answer")
+        if agent_loop:
+            graph.add_node("tool_continue", tool_continue)
+            graph.add_conditional_edges(
+                "execute_tool",
+                lambda state: "tool_answer" if state["tool_result"].get("error") or state["tool_call_count"] >= MAX_TOOL_CALLS else "tool_continue",
+                {"tool_answer": "tool_answer", "tool_continue": "tool_continue"},
+            )
+            graph.add_conditional_edges(
+                "tool_continue", lambda state: "execute_tool" if state.get("tool_request") is not None else END,
+                {"execute_tool": "execute_tool", END: END},
+            )
+        else:
+            graph.add_edge("execute_tool", "tool_answer")
         graph.add_edge("tool_answer", END)
     else:
         graph.add_edge(START, "rewrite")
@@ -227,6 +244,8 @@ class LangGraphConversationService:
                 retrieval_question="", include_guide=None,
                 candidates=[], docs=[], answer="", sources=[],
                 tool_request=None, tool_messages=[], tool_result=None,
+                tool_results=[], tool_call_count=0,
+                tool_call_limit=0,
             )
         def invoke():
             return self._execute(state, state, on_node_update)
