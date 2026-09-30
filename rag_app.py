@@ -6,6 +6,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langgraph.checkpoint.memory import InMemorySaver
 
 from conversation import ConversationRagService
 from bm25_retriever import BM25Retriever, merge_retrieval_candidates
@@ -265,8 +266,11 @@ def create_rag_chain(
 
 def create_conversation_service(
     decompose=False, profile=False, evidence_selection=False, use_langgraph=False,
+    checkpoint=False, thread_id="learning",
 ):
     """Create the CLI service with bounded in-memory conversation history."""
+    if checkpoint and (not use_langgraph or profile or not thread_id.strip()):
+        raise ValueError("checkpoint 需要 LangGraph 与非空 thread_id，本轮暂不支持 --profile")
     load_dotenv()
     history_turns = int(os.getenv("HISTORY_TURNS", "4"))
     rewrite_model = ChatOpenAI(
@@ -282,9 +286,11 @@ def create_conversation_service(
         graph = build_langgraph_rag(
             RetrievalQuestionRewriter(rewrite_model, load_guides()),
             retriever, reranker, prompt, model,
+            **({"checkpointer": InMemorySaver()} if checkpoint else {}),
         )
         return LangGraphConversationService(
             graph, InMemoryChatMessageHistory(), max_turns=history_turns, profile=profile,
+            **({"thread_id": thread_id} if checkpoint else {}),
         )
 
     chain_options = {"decompose": True} if decompose else {}

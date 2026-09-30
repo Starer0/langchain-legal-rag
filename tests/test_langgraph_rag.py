@@ -9,6 +9,45 @@ from query_rewrite import RetrievalPlan
 
 
 class LangGraphRagTests(unittest.TestCase):
+    def test_checkpoints_save_node_states_and_isolate_threads(self):
+        from langgraph.checkpoint.memory import InMemorySaver
+        from langgraph_rag import build_langgraph_rag, LangGraphConversationService
+
+        rewriter = Mock()
+        rewriter.rewrite.return_value = RetrievalPlan("工资规定", False)
+        doc = Document(page_content="工资规定", metadata={"article": "第一条"})
+        retrieve = Mock(return_value=[doc])
+        graph = build_langgraph_rag(
+            rewriter, RunnableLambda(retrieve),
+            RunnableLambda(lambda state: state["candidates"]),
+            RunnableLambda(lambda state: state["question"]),
+            RunnableLambda(lambda text: "答复"),
+            checkpointer=InMemorySaver(),
+        )
+        service = LangGraphConversationService(graph, InMemoryChatMessageHistory(), thread_id="A")
+        self.assertIsNone(service.inspect_checkpoint())
+        result = service.ask("工资？", on_node_update=lambda *args: None)
+        saved = service.inspect_checkpoint()
+        self.assertEqual(saved["question"], "工资？")
+        self.assertEqual(saved["answer"], result["answer"])
+        self.assertEqual(saved["next"], [])
+        snapshots = service.checkpoint_history()
+        self.assertTrue(any(item["next"] == ["rerank"] and item["candidate_count"] == 1 for item in snapshots))
+        self.assertTrue(any(item["next"] == ["answer"] and item["document_count"] == 1 for item in snapshots))
+        other = LangGraphConversationService(graph, InMemoryChatMessageHistory(), thread_id="B")
+        self.assertIsNone(other.inspect_checkpoint())
+        self.assertEqual(retrieve.call_count, 1)
+        rewriter.rewrite.assert_called_once()
+        fresh_graph = build_langgraph_rag(
+            rewriter, RunnableLambda(retrieve),
+            RunnableLambda(lambda state: state["candidates"]),
+            RunnableLambda(lambda state: state["question"]),
+            RunnableLambda(lambda text: "答复"),
+            checkpointer=InMemorySaver(),
+        )
+        restarted = LangGraphConversationService(fresh_graph, InMemoryChatMessageHistory(), thread_id="A")
+        self.assertIsNone(restarted.inspect_checkpoint())
+
     def test_empty_candidates_take_no_evidence_branch_without_rerank_or_answer_model(self):
         from langgraph_rag import build_langgraph_rag, LangGraphConversationService
 

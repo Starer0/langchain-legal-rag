@@ -1,4 +1,5 @@
 import argparse
+import json
 
 from rag_app import (
     create_conversation_service, ensure_legal_corpus_ready, ingest_legal_corpus,
@@ -24,11 +25,24 @@ def display_node_update(node, update, output_fn=print):
 
 
 def run_cli(service, input_fn=input, output_fn=print, *, trace=False):
+    if getattr(service, "thread_id", None) is not None:
+        output_fn(f"内存 checkpoint 线程：{service.thread_id}；/state 查看最新状态，/checkpoints 查看快照历史；退出后清空。")
     while True:
         question = input_fn("\n请输入问题，输入 q 退出：")
         if question.lower() == "q":
             break
         if not question.strip():
+            continue
+
+        if question.strip() in ("/state", "/checkpoints"):
+            if getattr(service, "thread_id", None) is None:
+                output_fn("请使用 --langgraph --checkpoint 启用快照查看。")
+            else:
+                value = (
+                    service.inspect_checkpoint() if question.strip() == "/state"
+                    else service.checkpoint_history()
+                )
+                output_fn(json.dumps(value, ensure_ascii=False, indent=2) if value else "当前线程尚无快照。")
             continue
 
         if trace:
@@ -132,6 +146,8 @@ def main(argv=None):
         "--trace", action="store_true",
         help="配合 --langgraph 实时显示每个节点的状态更新",
     )
+    parser.add_argument("--checkpoint", action="store_true", help="启用内存 checkpoint 学习模式")
+    parser.add_argument("--thread-id", help="checkpoint 线程标识，默认 learning")
     args = parser.parse_args(argv)
     if args.ingest:
         return ingest_legal_corpus()
@@ -143,12 +159,20 @@ def main(argv=None):
         parser.error("--langgraph 暂不支持与 --decompose 同时使用")
     if args.trace and not args.langgraph:
         parser.error("--trace 需要配合 --langgraph 使用")
+    if args.checkpoint and not args.langgraph:
+        parser.error("--checkpoint 需要配合 --langgraph 使用")
+    if args.checkpoint and args.profile:
+        parser.error("本轮 checkpoint 模式暂不支持 --profile")
+    if args.thread_id is not None and (not args.checkpoint or not args.thread_id.strip()):
+        parser.error("--thread-id 需要配合 --checkpoint 使用，并且不能为空")
     ensure_legal_corpus_ready()
     service_options = {"decompose": args.decompose}
     if args.profile:
         service_options["profile"] = True
     if args.langgraph:
         service_options["use_langgraph"] = True
+    if args.checkpoint:
+        service_options.update(checkpoint=True, thread_id=args.thread_id or "learning")
     service = create_conversation_service(**service_options)
     return run_cli(service, trace=True) if args.trace else run_cli(service)
 

@@ -25,7 +25,7 @@ class RagState(TypedDict, total=False):
     _profile: Any
 
 
-def build_langgraph_rag(rewriter, retriever, reranker, prompt, model):
+def build_langgraph_rag(rewriter, retriever, reranker, prompt, model, *, checkpointer=None):
     """Compile single-question RAG with an empty-candidate exit."""
     answer_chain = (
         {
@@ -87,7 +87,7 @@ def build_langgraph_rag(rewriter, retriever, reranker, prompt, model):
     graph.add_edge("rerank", "answer")
     graph.add_edge("answer", END)
     graph.add_edge("no_evidence", END)
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer)
 
 
 class LangGraphConversationService:
@@ -95,12 +95,30 @@ class LangGraphConversationService:
 
     def __init__(
         self, graph, history: BaseChatMessageHistory, max_turns: int = 4,
-        profile: bool = False,
+        profile: bool = False, thread_id: str | None = None,
     ):
+        if thread_id is not None and (not thread_id.strip() or profile):
+            raise ValueError("checkpoint 需要非空 thread_id，本轮暂不支持 --profile")
         self.graph = graph
         self.history = history
         self.max_turns = max_turns
         self.profile = profile
+        self.thread_id = thread_id
+
+    def _checkpoint_config(self):
+        if self.thread_id is None:
+            raise ValueError("请使用 --langgraph --checkpoint 启用快照查看")
+        return {"configurable": {"thread_id": self.thread_id}}
+
+    def inspect_checkpoint(self):
+        snapshot = self.graph.get_state(self._checkpoint_config())
+        return _checkpoint_summary(snapshot) if snapshot.values else None
+
+    def checkpoint_history(self):
+        return [
+            _checkpoint_summary(snapshot)
+            for snapshot in self.graph.get_state_history(self._checkpoint_config())
+        ]
 
     def ask(self, question: str, *, on_node_update=None) -> dict:
         original_question = question.strip()
@@ -115,11 +133,18 @@ class LangGraphConversationService:
         }
         if profile:
             state["_profile"] = profile
+        if self.thread_id is not None:
+            # Each question starts a new turn; do not retain previous answer fields.
+            state.update(
+                retrieval_question="", include_guide=None,
+                candidates=[], docs=[], answer="", sources=[],
+            )
+        config_options = {"config": self._checkpoint_config()} if self.thread_id is not None else {}
         def invoke():
             if on_node_update is None:
-                return self.graph.invoke(state)
+                return self.graph.invoke(state, **config_options)
             result = dict(state)
-            for event in self.graph.stream(state, stream_mode="updates"):
+            for event in self.graph.stream(state, stream_mode="updates", **config_options):
                 for node, update in event.items():
                     result.update(update)
                     on_node_update(node, update)
@@ -136,3 +161,18 @@ class LangGraphConversationService:
                 total_ms=(perf_counter() - started) * 1000
             )
         return result
+
+
+def _checkpoint_summary(snapshot):
+    values = snapshot.values
+    return {
+        "checkpoint_id": snapshot.config["configurable"].get("checkpoint_id"),
+        "step": (snapshot.metadata or {}).get("step"),
+        "next": list(snapshot.next),
+        "question": values.get("question"),
+        "retrieval_question": values.get("retrieval_question"),
+        "include_guide": values.get("include_guide"),
+        "candidate_count": len(values.get("candidates", [])),
+        "document_count": len(values.get("docs", [])),
+        "answer": values.get("answer", ""),
+    }
