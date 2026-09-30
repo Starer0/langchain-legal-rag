@@ -8,4 +8,5 @@ evals/results/
 .superpowers/
 *.pyc
 data/web_rag.sqlite3
+data/langgraph_checkpoints.sqlite3*
 HANDOFF.md

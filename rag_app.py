@@ -1,4 +1,6 @@
 import os
+from contextlib import ExitStack
+from pathlib import Path
 
 from dotenv import load_dotenv
 from langchain_core.chat_history import InMemoryChatMessageHistory
@@ -266,11 +268,13 @@ def create_rag_chain(
 
 def create_conversation_service(
     decompose=False, profile=False, evidence_selection=False, use_langgraph=False,
-    checkpoint=False, thread_id="learning",
+    checkpoint=False, thread_id="learning", checkpoint_db=None,
 ):
     """Create the CLI service with bounded in-memory conversation history."""
     if checkpoint and (not use_langgraph or profile or not thread_id.strip()):
         raise ValueError("checkpoint 需要 LangGraph 与非空 thread_id，本轮暂不支持 --profile")
+    if checkpoint_db is not None and (not checkpoint or not str(checkpoint_db).strip()):
+        raise ValueError("checkpoint_db 需要启用 checkpoint，并且路径不能为空")
     load_dotenv()
     history_turns = int(os.getenv("HISTORY_TURNS", "4"))
     rewrite_model = ChatOpenAI(
@@ -283,15 +287,30 @@ def create_conversation_service(
         if decompose:
             raise ValueError("LangGraph 学习路径暂不支持复杂问题拆分")
         model, retriever, reranker, prompt, _, _ = _create_rag_components()
-        graph = build_langgraph_rag(
-            RetrievalQuestionRewriter(rewrite_model, load_guides()),
-            retriever, reranker, prompt, model,
-            **({"checkpointer": InMemorySaver()} if checkpoint else {}),
-        )
-        return LangGraphConversationService(
-            graph, InMemoryChatMessageHistory(), max_turns=history_turns, profile=profile,
-            **({"thread_id": thread_id} if checkpoint else {}),
-        )
+        resources = ExitStack()
+        try:
+            saver = InMemorySaver() if checkpoint else None
+            database_path = None
+            if checkpoint_db is not None:
+                from langgraph.checkpoint.sqlite import SqliteSaver
+
+                path = Path(checkpoint_db).resolve()
+                path.parent.mkdir(parents=True, exist_ok=True)
+                database_path = str(path)
+                saver = resources.enter_context(SqliteSaver.from_conn_string(database_path))
+            graph = build_langgraph_rag(
+                RetrievalQuestionRewriter(rewrite_model, load_guides()),
+                retriever, reranker, prompt, model,
+                **({"checkpointer": saver} if checkpoint else {}),
+            )
+            return LangGraphConversationService(
+                graph, InMemoryChatMessageHistory(), max_turns=history_turns, profile=profile,
+                checkpoint_resources=resources, checkpoint_db=database_path,
+                **({"thread_id": thread_id} if checkpoint else {}),
+            )
+        except BaseException:
+            resources.close()
+            raise
 
     chain_options = {"decompose": True} if decompose else {}
     if profile:

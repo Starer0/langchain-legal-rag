@@ -4,6 +4,7 @@ langchain-community
 langchain-core
 langchain-openai
 langgraph
+langgraph-checkpoint-sqlite
 pypdf
 python-dotenv
 requests

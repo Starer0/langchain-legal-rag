@@ -3,6 +3,27 @@ from unittest.mock import Mock, patch
 
 
 class LangGraphCliTests(unittest.TestCase):
+    @patch("main.run_cli", side_effect=RuntimeError("退出"))
+    @patch("main.create_conversation_service")
+    @patch("main.ensure_legal_corpus_ready")
+    def test_sqlite_options_and_connection_cleanup(self, ensure, create_service, run_cli):
+        import main
+
+        with self.assertRaisesRegex(RuntimeError, "退出"):
+            main.main(["--langgraph", "--checkpoint", "--checkpoint-db", "data/checkpoints.sqlite3", "--thread-id", "A"])
+        create_service.assert_called_once_with(
+            decompose=False, use_langgraph=True, checkpoint=True, thread_id="A",
+            checkpoint_db="data/checkpoints.sqlite3",
+        )
+        create_service.return_value.close.assert_called_once()
+
+    def test_checkpoint_database_requires_checkpoint(self):
+        import main
+
+        with patch("main.ensure_legal_corpus_ready") as ensure, self.assertRaises(SystemExit):
+            main.main(["--langgraph", "--checkpoint-db", "data/checkpoints.sqlite3"])
+        ensure.assert_not_called()
+
     def test_checkpoint_commands_only_read_saved_state(self):
         from main import run_cli
 

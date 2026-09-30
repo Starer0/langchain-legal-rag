@@ -26,7 +26,9 @@ def display_node_update(node, update, output_fn=print):
 
 def run_cli(service, input_fn=input, output_fn=print, *, trace=False):
     if getattr(service, "thread_id", None) is not None:
-        output_fn(f"内存 checkpoint 线程：{service.thread_id}；/state 查看最新状态，/checkpoints 查看快照历史；退出后清空。")
+        database = getattr(service, "checkpoint_db", None)
+        storage = f"SQLite checkpoint：{database}；重启后可读取快照，聊天历史仍为本次启动内存。" if database else "内存 checkpoint；退出后清空。"
+        output_fn(f"线程：{service.thread_id}；{storage} /state 查看最新状态，/checkpoints 查看快照历史。")
     while True:
         question = input_fn("\n请输入问题，输入 q 退出：")
         if question.lower() == "q":
@@ -148,6 +150,7 @@ def main(argv=None):
     )
     parser.add_argument("--checkpoint", action="store_true", help="启用内存 checkpoint 学习模式")
     parser.add_argument("--thread-id", help="checkpoint 线程标识，默认 learning")
+    parser.add_argument("--checkpoint-db", help="配合 --checkpoint 将快照存到指定 SQLite 文件；省略时使用内存")
     args = parser.parse_args(argv)
     if args.ingest:
         return ingest_legal_corpus()
@@ -163,6 +166,8 @@ def main(argv=None):
         parser.error("--checkpoint 需要配合 --langgraph 使用")
     if args.checkpoint and args.profile:
         parser.error("本轮 checkpoint 模式暂不支持 --profile")
+    if args.checkpoint_db is not None and (not args.checkpoint or not args.checkpoint_db.strip()):
+        parser.error("--checkpoint-db 需要配合 --checkpoint 使用，并且路径不能为空")
     if args.thread_id is not None and (not args.checkpoint or not args.thread_id.strip()):
         parser.error("--thread-id 需要配合 --checkpoint 使用，并且不能为空")
     ensure_legal_corpus_ready()
@@ -173,8 +178,15 @@ def main(argv=None):
         service_options["use_langgraph"] = True
     if args.checkpoint:
         service_options.update(checkpoint=True, thread_id=args.thread_id or "learning")
+    if args.checkpoint_db is not None:
+        service_options["checkpoint_db"] = args.checkpoint_db
     service = create_conversation_service(**service_options)
-    return run_cli(service, trace=True) if args.trace else run_cli(service)
+    try:
+        return run_cli(service, trace=True) if args.trace else run_cli(service)
+    finally:
+        close = getattr(service, "close", None)
+        if close is not None:
+            close()
 
 
 if __name__ == "__main__":

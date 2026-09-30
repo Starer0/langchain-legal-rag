@@ -1,5 +1,9 @@
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+from pathlib import Path
+from tempfile import TemporaryDirectory
+import subprocess
+import sys
 
 from langchain_core.documents import Document
 from langchain_core.chat_history import InMemoryChatMessageHistory
@@ -9,6 +13,64 @@ from query_rewrite import RetrievalPlan
 
 
 class LangGraphRagTests(unittest.TestCase):
+    def test_sqlite_factory_reopens_snapshots_without_restoring_chat_history(self):
+        from rag_app import create_conversation_service
+
+        rewriter = Mock()
+        rewriter.rewrite.return_value = RetrievalPlan("工资规定", False)
+        doc = Document(page_content="工资规定", metadata={"article": "第一条"})
+        retrieve = Mock(return_value=[doc])
+        components = (
+            RunnableLambda(lambda text: "答复"), RunnableLambda(retrieve),
+            RunnableLambda(lambda state: state["candidates"]),
+            RunnableLambda(lambda state: state["question"]), None, 4,
+        )
+        with TemporaryDirectory() as directory, patch("rag_app.load_dotenv"), patch("rag_app.ChatOpenAI"), patch(
+            "rag_app._create_rag_components", return_value=components
+        ), patch("rag_app.load_guides", return_value=[]), patch(
+            "rag_app.RetrievalQuestionRewriter", return_value=rewriter
+        ):
+            path = str(Path(directory) / "nested" / "checkpoints.sqlite3")
+            options = dict(use_langgraph=True, checkpoint=True, checkpoint_db=path, thread_id="A")
+            first = create_conversation_service(**options)
+            try:
+                first.ask("工资？", on_node_update=lambda *args: None)
+                saved = first.inspect_checkpoint()
+                count = len(first.checkpoint_history())
+            finally:
+                first.close()
+            # A separate process can read the file without a model or retriever.
+            child = subprocess.run(
+                [sys.executable, "-c", (
+                    "import sys; from langgraph.checkpoint.sqlite import SqliteSaver\n"
+                    "with SqliteSaver.from_conn_string(sys.argv[1]) as saver:\n"
+                    "    saved = saver.get_tuple({'configurable': {'thread_id': 'A'}})\n"
+                    "    assert saved.checkpoint['channel_values']['question'] == sys.argv[2]\n"
+                ), path, "工资？"],
+                capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(child.returncode, 0, child.stderr)
+            restarted = create_conversation_service(**options)
+            try:
+                self.assertEqual(restarted.inspect_checkpoint(), saved)
+                self.assertEqual(len(restarted.checkpoint_history()), count)
+                self.assertEqual(restarted.history.messages, [])
+                # Reading persisted snapshots must not run a model or retrieval.
+                rewriter.rewrite.assert_called_once()
+                retrieve.assert_called_once()
+                restarted.thread_id = "B"
+                self.assertIsNone(restarted.inspect_checkpoint())
+                self.assertEqual(restarted.checkpoint_history(), [])
+                restarted.thread_id = "A"
+                retrieve.return_value = []
+                restarted.ask("未知资料？")
+                self.assertEqual(restarted.inspect_checkpoint()["document_count"], 0)
+                self.assertEqual(restarted.inspect_checkpoint()["answer"], "资料中没有足够依据。")
+                self.assertEqual(rewriter.rewrite.call_args.args[1], [])
+            finally:
+                restarted.close()
+            restarted.close()  # Closing resources is safe more than once.
+
     def test_checkpoints_save_node_states_and_isolate_threads(self):
         from langgraph.checkpoint.memory import InMemorySaver
         from langgraph_rag import build_langgraph_rag, LangGraphConversationService

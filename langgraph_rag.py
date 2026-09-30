@@ -96,6 +96,7 @@ class LangGraphConversationService:
     def __init__(
         self, graph, history: BaseChatMessageHistory, max_turns: int = 4,
         profile: bool = False, thread_id: str | None = None,
+        checkpoint_resources=None, checkpoint_db: str | None = None,
     ):
         if thread_id is not None and (not thread_id.strip() or profile):
             raise ValueError("checkpoint 需要非空 thread_id，本轮暂不支持 --profile")
@@ -104,6 +105,13 @@ class LangGraphConversationService:
         self.max_turns = max_turns
         self.profile = profile
         self.thread_id = thread_id
+        self.checkpoint_db = checkpoint_db
+        self._checkpoint_resources = checkpoint_resources
+
+    def close(self):
+        """Release the SQLite connection owned by the service factory."""
+        if self._checkpoint_resources is not None:
+            self._checkpoint_resources.close()
 
     def _checkpoint_config(self):
         if self.thread_id is None:
