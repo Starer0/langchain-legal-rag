@@ -86,7 +86,7 @@ class LangGraphConversationService:
         self.max_turns = max_turns
         self.profile = profile
 
-    def ask(self, question: str) -> dict:
+    def ask(self, question: str, *, on_node_update=None) -> dict:
         original_question = question.strip()
         if not original_question:
             raise ValueError("问题不能为空")
@@ -99,7 +99,16 @@ class LangGraphConversationService:
         }
         if profile:
             state["_profile"] = profile
-        invoke = lambda: self.graph.invoke(state)
+        def invoke():
+            if on_node_update is None:
+                return self.graph.invoke(state)
+            result = dict(state)
+            for event in self.graph.stream(state, stream_mode="updates"):
+                for node, update in event.items():
+                    result.update(update)
+                    on_node_update(node, update)
+            return result
+
         result = dict(profile.measure("pipeline", invoke) if profile else invoke())
         self.history.add_user_message(original_question)
         self.history.add_ai_message(result["answer"])

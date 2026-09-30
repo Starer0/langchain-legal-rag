@@ -6,7 +6,21 @@ from rag_app import (
 )
 
 
-def run_cli(service, input_fn=input, output_fn=print):
+def display_node_update(node, update, output_fn=print):
+    output_fn(f"\n[{node}] 完成")
+    if node == "rewrite":
+        output_fn(f"  retrieval_question → {update['retrieval_question']}")
+        labels = {True: "需要", False: "不需要", None: "不确定"}
+        output_fn(f"  include_guide → {labels[update['include_guide']]}办事指南")
+    elif node == "retrieve":
+        output_fn(f"  candidates → {len(update['candidates'])} 条候选资料")
+    elif node == "rerank":
+        output_fn(f"  docs → {len(update['docs'])} 条重排资料")
+    elif node == "answer":
+        output_fn(f"  answer → 已生成；sources → {len(update['sources'])} 条来源")
+
+
+def run_cli(service, input_fn=input, output_fn=print, *, trace=False):
     while True:
         question = input_fn("\n请输入问题，输入 q 退出：")
         if question.lower() == "q":
@@ -14,7 +28,13 @@ def run_cli(service, input_fn=input, output_fn=print):
         if not question.strip():
             continue
 
-        result = service.ask(question)
+        if trace:
+            result = service.ask(
+                question,
+                on_node_update=lambda node, update: display_node_update(node, update, output_fn),
+            )
+        else:
+            result = service.ask(question)
 
         output_fn(f"\n检索问题：{result['retrieval_question']}")
         if len(result.get("subquestions", [])) > 1:
@@ -105,6 +125,10 @@ def main(argv=None):
         action="store_true",
         help="使用 LangGraph 状态图运行单问题 RAG 学习路径",
     )
+    parser.add_argument(
+        "--trace", action="store_true",
+        help="配合 --langgraph 实时显示每个节点的状态更新",
+    )
     args = parser.parse_args(argv)
     if args.ingest:
         return ingest_legal_corpus()
@@ -114,13 +138,16 @@ def main(argv=None):
         return prune_stale_legal_indexes()
     if args.langgraph and args.decompose:
         parser.error("--langgraph 暂不支持与 --decompose 同时使用")
+    if args.trace and not args.langgraph:
+        parser.error("--trace 需要配合 --langgraph 使用")
     ensure_legal_corpus_ready()
     service_options = {"decompose": args.decompose}
     if args.profile:
         service_options["profile"] = True
     if args.langgraph:
         service_options["use_langgraph"] = True
-    return run_cli(create_conversation_service(**service_options))
+    service = create_conversation_service(**service_options)
+    return run_cli(service, trace=True) if args.trace else run_cli(service)
 
 
 if __name__ == "__main__":

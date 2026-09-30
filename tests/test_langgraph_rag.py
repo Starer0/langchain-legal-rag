@@ -9,6 +9,48 @@ from query_rewrite import RetrievalPlan
 
 
 class LangGraphRagTests(unittest.TestCase):
+    def test_stream_failure_does_not_save_a_partial_conversation(self):
+        from langgraph_rag import LangGraphConversationService
+
+        graph = Mock()
+        def updates(*args, **kwargs):
+            yield {"rewrite": {"retrieval_question": "工资规定", "include_guide": False}}
+            raise RuntimeError("检索失败")
+        graph.stream.side_effect = updates
+        history = InMemoryChatMessageHistory()
+        service = LangGraphConversationService(graph, history)
+
+        with self.assertRaisesRegex(RuntimeError, "检索失败"):
+            service.ask("工资？", on_node_update=lambda *args: None)
+
+        self.assertEqual(history.messages, [])
+        graph.invoke.assert_not_called()
+
+    def test_observing_real_graph_runs_each_step_once_and_preserves_result(self):
+        from langgraph_rag import build_langgraph_rag, LangGraphConversationService
+
+        rewriter = Mock()
+        rewriter.rewrite.return_value = RetrievalPlan("工资规定", False)
+        calls = []
+        document = Document(page_content="工资规定", metadata={"article": "第一条"})
+        retriever = RunnableLambda(lambda state: calls.append("retrieve") or [document])
+        reranker = RunnableLambda(lambda state: calls.append("rerank") or state["candidates"])
+        prompt = RunnableLambda(lambda state: state["question"])
+        model = RunnableLambda(lambda text: calls.append("answer") or "回答")
+        graph = build_langgraph_rag(rewriter, retriever, reranker, prompt, model)
+        service = LangGraphConversationService(graph, InMemoryChatMessageHistory(), profile=True)
+        events = []
+
+        result = service.ask("工资？", on_node_update=lambda node, update: events.append((node, update)))
+
+        self.assertEqual([node for node, _ in events], ["rewrite", "retrieve", "rerank", "answer"])
+        self.assertEqual(calls, ["retrieve", "rerank", "answer"])
+        rewriter.rewrite.assert_called_once()
+        self.assertEqual(events[0][1]["retrieval_question"], "工资规定")
+        self.assertEqual(result["answer"], "回答")
+        self.assertEqual(result["sources"][0]["article"], "第一条")
+        self.assertEqual(result["performance"]["model_calls"], 2)
+
     def test_conversation_service_passes_history_into_graph_and_stores_answer(self):
         from langgraph_rag import LangGraphConversationService
 

@@ -54,6 +54,30 @@ python main.py --langgraph --profile
 
 `--langgraph` 当前只支持单问题流程，不能和 `--decompose` 同时使用。复杂问题拆分、循环重试、人工确认和 checkpoint 会在理解这个固定图之后再逐项加入。
 
-## 验证
+## V11.1：实时观察节点更新
+
+```powershell
+python main.py --langgraph --trace
+```
+
+`--trace` 使用 LangGraph 的 `stream_mode="updates"`。每个节点完成后立即显示该节点返回的更新，而不是等整次问答完成后才显示：
+
+```text
+[rewrite] 完成
+  retrieval_question → 试用期工资有什么规定？
+  include_guide → 不需要办事指南
+[retrieve] 完成
+  candidates → 8 条候选资料
+[rerank] 完成
+  docs → 5 条重排资料
+[answer] 完成
+  answer → 已生成；sources → 5 条来源
+```
+
+这些更新由服务合并成最终结果。图只执行一次，模型与 Reranker 调用次数相同。显示的是节点完成事件；回答文字仍在 answer 节点完成后显示，不是 Token 流式输出。
+
+同时观察耗时可使用 `python main.py --langgraph --trace --profile`。如果某个节点失败，不保存不完整的问答历史。
+
+## 等价性验证
 
 测试使用同一套伪 Retriever、Reranker、Prompt 和模型，对比图路径与原有单问题链路。两者的回答、候选资料和最终来源必须相同。这验证了本版本改变的是流程表达方式，而不是问答逻辑。
