@@ -10,7 +10,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
 from conversation import recent_complete_turns
-from date_tools import MAX_TOOL_CALLS, build_date_tool_nodes
+from date_tools import MAX_TOOL_CALLS, build_date_tool_nodes, collect_tool_input
 from performance import TurnProfile, measure
 from rag_pipeline_articles import format_docs, format_sources
 
@@ -31,17 +31,22 @@ class RagState(TypedDict, total=False):
     tool_results: list[dict]
     tool_call_count: int
     tool_call_limit: int
+    tool_input_error: str | None
+    tool_input_answers: list[dict]
 
 
 def build_langgraph_rag(
     rewriter, retriever, reranker, prompt, model, *, checkpointer=None,
     pause_after_retrieve=False, enable_tools=False, agent_loop=False,
+    tool_human_input=False,
 ):
     """Compile single-question RAG with an empty-candidate exit."""
     if pause_after_retrieve and checkpointer is None:
         raise ValueError("检索后暂停需要 checkpoint")
     if agent_loop and not enable_tools:
         raise ValueError("工具循环需要启用 tools")
+    if tool_human_input and (not enable_tools or checkpointer is None):
+        raise ValueError("工具补参数需要 tools 和 checkpoint")
     answer_chain = (
         {
             "context": RunnableLambda(lambda state: format_docs(state["docs"])),
@@ -105,14 +110,20 @@ def build_langgraph_rag(
     graph.add_node("no_evidence", no_evidence)
     graph.add_node("review", review)
     if enable_tools:
-        tool_plan, execute_tool, tool_answer, tool_continue = build_date_tool_nodes(model, agent_loop=agent_loop)
+        tool_plan, execute_tool, tool_answer, tool_continue = build_date_tool_nodes(
+            model, agent_loop=agent_loop, tool_human_input=tool_human_input,
+        )
+        next_tool_node = "collect_tool_input" if tool_human_input else "execute_tool"
+        if tool_human_input:
+            graph.add_node("collect_tool_input", collect_tool_input)
+            graph.add_edge("collect_tool_input", "execute_tool")
         graph.add_node("tool_plan", tool_plan)
         graph.add_node("execute_tool", execute_tool)
         graph.add_node("tool_answer", tool_answer)
         graph.add_edge(START, "tool_plan")
         graph.add_conditional_edges(
-            "tool_plan", lambda state: "execute_tool" if state.get("tool_request") is not None else "rewrite",
-            {"execute_tool": "execute_tool", "rewrite": "rewrite"},
+            "tool_plan", lambda state: next_tool_node if state.get("tool_request") is not None else "rewrite",
+            {next_tool_node: next_tool_node, "rewrite": "rewrite"},
         )
         if agent_loop:
             graph.add_node("tool_continue", tool_continue)
@@ -122,8 +133,8 @@ def build_langgraph_rag(
                 {"tool_answer": "tool_answer", "tool_continue": "tool_continue"},
             )
             graph.add_conditional_edges(
-                "tool_continue", lambda state: "execute_tool" if state.get("tool_request") is not None else END,
-                {"execute_tool": "execute_tool", END: END},
+                "tool_continue", lambda state: next_tool_node if state.get("tool_request") is not None else END,
+                {next_tool_node: next_tool_node, END: END},
             )
         else:
             graph.add_edge("execute_tool", "tool_answer")
@@ -202,8 +213,8 @@ class LangGraphConversationService:
                 return {
                     "paused": True, "interrupts": pending,
                     "question": result["question"],
-                    "retrieval_question": result["retrieval_question"],
-                    "candidates": format_sources(result["candidates"]),
+                    "retrieval_question": result.get("retrieval_question", ""),
+                    "candidates": format_sources(result.get("candidates", [])),
                 }
         return result
 
@@ -212,13 +223,22 @@ class LangGraphConversationService:
         self.history.add_ai_message(answer)
         self.history.messages[:] = recent_complete_turns(self.history.messages, self.max_turns)
 
-    def resume(self, *, on_node_update=None):
+    def _completed_question(self, result, original_question=None):
+        question = result.get("question", original_question)
+        for item in result.get("tool_input_answers", []):
+            values = ", ".join(f"{k}={v}" for k, v in item["args"].items())
+            question += f"\n用户补充（{item['tool_call_id']}）：{values}"
+        return question
+
+    def resume(self, value=True, *, on_node_update=None):
         snapshot = self.graph.get_state(self._checkpoint_config())
         if not _interrupt_values(snapshot):
             raise ValueError("当前线程没有等待继续的暂停任务。")
-        result = self._execute(Command(resume=True), snapshot.values, on_node_update)
+        if _interrupt_values(snapshot)[0].get("kind") != "tool_input" and value is not True:
+            raise ValueError("检索审核暂停请使用不带参数的 /resume。")
+        result = self._execute(Command(resume=value), snapshot.values, on_node_update)
         if not result.get("paused"):
-            self._save_completed_turn(result["question"], result["answer"])
+            self._save_completed_turn(self._completed_question(result, snapshot.values["question"]), result["answer"])
         return result
 
     def ask(self, question: str, *, on_node_update=None) -> dict:
@@ -246,13 +266,14 @@ class LangGraphConversationService:
                 tool_request=None, tool_messages=[], tool_result=None,
                 tool_results=[], tool_call_count=0,
                 tool_call_limit=0,
+                tool_input_error=None, tool_input_answers=[],
             )
         def invoke():
             return self._execute(state, state, on_node_update)
 
         result = dict(profile.measure("pipeline", invoke) if profile else invoke())
         if not result.get("paused"):
-            self._save_completed_turn(original_question, result["answer"])
+            self._save_completed_turn(self._completed_question(result, original_question), result["answer"])
         if profile:
             result["performance"] = profile.snapshot(
                 total_ms=(perf_counter() - started) * 1000
@@ -277,4 +298,7 @@ def _checkpoint_summary(snapshot):
         "candidate_count": len(values.get("candidates", [])),
         "document_count": len(values.get("docs", [])),
         "answer": values.get("answer", ""),
+        "tool_call_count": values.get("tool_call_count", 0),
+        "tool_call_limit": values.get("tool_call_limit", 0),
+        "tool_input_answers": values.get("tool_input_answers", []),
     }

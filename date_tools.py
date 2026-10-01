@@ -1,11 +1,14 @@
 """One local date tool and the bounded model/tool exchange used for learning."""
 
 import json
+import re
 from datetime import date
 
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.tools import tool
+from langchain_core.utils.function_calling import convert_to_openai_tool
+from langgraph.types import interrupt
 from pydantic import BaseModel, ConfigDict, Field
 
 from performance import measure
@@ -54,13 +57,33 @@ TOOL_LOOP_PROMPT = """你为法律 RAG 助手处理纯日期间隔计算或多�
 """
 
 
-def build_date_tool_nodes(model, *, agent_loop=False):
+TOOL_HUMAN_INPUT_PROMPT = """你为法律 RAG 助手选择纯日期间隔计算工具。
+纯自然日间隔计算可以调用 calculate_date_interval；缺少起始或结束日期时也提出调用，
+只填写用户明确提供的完整 YYYY-MM-DD 日期，缺失字段必须省略，程序会暂停并请用户补充。
+绝不猜测日期，绝不把今天自动当作结束日期。每次只提出一个工具调用。
+法律条文、法律期限、工作日或混合了法律任务的问题不调用工具，交给 RAG。
+没有调用工具时不要直接回答；有工具结果后可以根据结果用中文回答。
+"""
+
+
+def build_date_tool_nodes(model, *, agent_loop=False, tool_human_input=False):
+    advertised_tool = calculate_date_interval
+    if tool_human_input:
+        # Only the planner schema permits omission. Execution still uses the strict tool.
+        advertised_tool = convert_to_openai_tool(calculate_date_interval)
+        advertised_tool["function"]["parameters"].pop("required", None)
     planner = model.bind_tools(
-        [calculate_date_interval], **({"parallel_tool_calls": False} if agent_loop else {}),
+        [advertised_tool], **({"parallel_tool_calls": False} if agent_loop or tool_human_input else {}),
     )
 
     def tool_plan(state):
-        messages = [SystemMessage(content=TOOL_LOOP_PROMPT if agent_loop else TOOL_PLAN_PROMPT), *state.get("history", []),
+        instructions = TOOL_LOOP_PROMPT if agent_loop else TOOL_PLAN_PROMPT
+        if tool_human_input:
+            instructions = TOOL_HUMAN_INPUT_PROMPT + (
+                "本轮最多执行两次工具；比较多个区间时复用已有结果，缺少结果不能编造。" if agent_loop
+                else "本轮最多执行一次工具。"
+            )
+        messages = [SystemMessage(content=instructions), *state.get("history", []),
                     HumanMessage(content=state["question"])]
         response = measure(state, "tool_plan", lambda: planner.invoke(messages))
         requested = bool(response.tool_calls or response.invalid_tool_calls)
@@ -68,6 +91,7 @@ def build_date_tool_nodes(model, *, agent_loop=False):
             "tool_request": response if requested else None,
             "tool_messages": [*messages, response] if requested else [],
             "tool_result": None,
+            "tool_input_error": None, "tool_input_answers": [],
             "tool_results": [], "tool_call_count": 0,
             "tool_call_limit": MAX_TOOL_CALLS if agent_loop else 1,
             "retrieval_question": state["question"] if requested else "",
@@ -79,6 +103,8 @@ def build_date_tool_nodes(model, *, agent_loop=False):
         count = state.get("tool_call_count", 0)
         if count >= (MAX_TOOL_CALLS if agent_loop else 1):
             result = {"error": "已达到本轮工具调用上限。"}
+        elif state.get("tool_input_error"):
+            result = {"error": state["tool_input_error"]}
         elif request.invalid_tool_calls or len(calls) != 1:
             result = {"error": "每次只接受一个格式正确的工具调用。"}
         elif calls[0]["name"] != calculate_date_interval.name:
@@ -132,3 +158,73 @@ def build_date_tool_nodes(model, *, agent_loop=False):
         return {"answer": answer, "candidates": [], "docs": [], "sources": []}
 
     return tool_plan, execute_tool, tool_answer, tool_continue
+
+
+def _validate_date(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
+        raise ValueError("请提供有效的 YYYY-MM-DD 日期。")
+    try:
+        return date.fromisoformat(value)
+    except ValueError as error:
+        raise ValueError("请提供有效的 YYYY-MM-DD 日期。") from error
+
+
+def collect_tool_input(state):
+    """Restartable, local-only clarification; no model calls or tool execution here."""
+    request = state["tool_request"]
+    if request.invalid_tool_calls or len(request.tool_calls) != 1:
+        return {"tool_input_error": None}  # execute_tool owns malformed-call rejection.
+    call = request.tool_calls[0]
+    if call["name"] != calculate_date_interval.name:
+        return {"tool_input_error": None}
+    args = dict(call["args"])
+    fields = ("start_date", "end_date")
+    try:
+        if set(args) - set(fields):
+            raise ValueError("日期工具只接受 start_date 和 end_date 参数。")
+        for value in args.values():
+            if value is not None:
+                _validate_date(value)
+    except ValueError as error:
+        return {"tool_input_error": str(error)}
+
+    supplied = {}
+    for field in fields:
+        if args.get(field) is not None:
+            continue
+        error_text = None
+        while True:
+            value = interrupt({
+                "kind": "tool_input", "tool": call["name"], "tool_call_id": call["id"],
+                "field": field, "known_args": {k: v for k, v in args.items() if v is not None},
+                "message": f"请补充{'起始' if field == 'start_date' else '结束'}日期，输入 /resume YYYY-MM-DD。",
+                "error": error_text,
+            })
+            # interrupt must stay outside try: its control-flow exception is not an input error.
+            try:
+                _validate_date(value)
+                candidate = {**args, field: value}
+                if all(candidate.get(k) is not None for k in fields):
+                    if _validate_date(candidate["end_date"]) < _validate_date(candidate["start_date"]):
+                        raise ValueError("结束日期不能早于起始日期。")
+            except ValueError as error:
+                error_text = str(error)
+                continue
+            args[field] = value
+            supplied[field] = value
+            break
+
+    updated = request.model_copy(deep=True)
+    updated.tool_calls[0]["args"] = args
+    clarification = [HumanMessage(content=f"用户已补充工具参数（{call['id']}）：" + ", ".join(
+        f"{key}={value}" for key, value in supplied.items()
+    ))] if supplied else []
+    # The last AIMessage is the pending request. Keep its call ID and replace its args.
+    return {
+        "tool_request": updated,
+        "tool_messages": [*state["tool_messages"][:-1], *clarification, updated],
+        "tool_input_error": None,
+        "tool_input_answers": [*state.get("tool_input_answers", []), *(
+            [{"tool_call_id": call["id"], "args": supplied}] if supplied else []
+        )],
+    }

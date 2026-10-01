@@ -269,7 +269,7 @@ def create_rag_chain(
 def create_conversation_service(
     decompose=False, profile=False, evidence_selection=False, use_langgraph=False,
     checkpoint=False, thread_id="learning", checkpoint_db=None, pause_after_retrieve=False,
-    enable_tools=False, agent_loop=False,
+    enable_tools=False, agent_loop=False, tool_human_input=False,
 ):
     """Create the CLI service with bounded in-memory conversation history."""
     if checkpoint and (not use_langgraph or profile or not thread_id.strip()):
@@ -282,6 +282,8 @@ def create_conversation_service(
         raise ValueError("工具学习模式需要 LangGraph")
     if agent_loop and not enable_tools:
         raise ValueError("工具循环需要启用 tools")
+    if tool_human_input and (not enable_tools or not checkpoint):
+        raise ValueError("工具补参数需要启用 tools 和 checkpoint")
     load_dotenv()
     history_turns = int(os.getenv("HISTORY_TURNS", "4"))
     rewrite_model = ChatOpenAI(
@@ -312,6 +314,7 @@ def create_conversation_service(
                 **({"pause_after_retrieve": True} if pause_after_retrieve else {}),
                 **({"enable_tools": True} if enable_tools else {}),
                 **({"agent_loop": True} if agent_loop else {}),
+                **({"tool_human_input": True} if tool_human_input else {}),
             )
             return LangGraphConversationService(
                 graph, InMemoryChatMessageHistory(), max_turns=history_turns, profile=profile,

@@ -42,6 +42,9 @@ def display_node_update(node, update, output_fn=print):
             output_fn("  模型决定结束工具调用，给出最终答复")
     elif node == "tool_answer":
         output_fn("  已生成工具结果答复")
+    elif node == "collect_tool_input":
+        output_fn("  补充参数已校验 → 接下来由 Python 执行工具" if not update.get("tool_input_error")
+                  else f"  参数被拒绝 → {update['tool_input_error']}")
 
 
 def run_cli(service, input_fn=input, output_fn=print, *, trace=False):
@@ -68,16 +71,29 @@ def run_cli(service, input_fn=input, output_fn=print, *, trace=False):
             continue
 
         options = {"on_node_update": lambda node, update: display_node_update(node, update, output_fn)} if trace else {}
-        if question.strip() == "/resume" and getattr(service, "thread_id", None) is None:
+        command = question.strip().split(maxsplit=1)
+        is_resume = command[0] == "/resume"
+        if is_resume and getattr(service, "thread_id", None) is None:
             output_fn("请使用 --langgraph --checkpoint 启用暂停恢复学习模式。")
             continue
         try:
-            result = service.resume(**options) if question.strip() == "/resume" else service.ask(question, **options)
+            if is_resume:
+                result = service.resume(command[1], **options) if len(command) == 2 else service.resume(**options)
+            else:
+                result = service.ask(question, **options)
         except ValueError as error:
             output_fn(str(error))
             continue
 
         if result.get("paused"):
+            pending = result["interrupts"][0]
+            if pending.get("kind") == "tool_input":
+                output_fn(f"\n已暂停，等待补充工具参数：{pending['message']}")
+                output_fn(f"已知参数：{json.dumps(pending['known_args'], ensure_ascii=False)}")
+                if pending.get("error"):
+                    output_fn(f"输入未通过校验：{pending['error']}")
+                output_fn("输入 /state 查看状态；输入 /resume YYYY-MM-DD 补充日期。")
+                continue
             output_fn(f"\n已暂停：检索问题为 {result['retrieval_question']}，尚未重排和生成回答。")
             for index, candidate in enumerate(result["candidates"], start=1):
                 label = candidate.get("article") or candidate.get("section") or "资料"
@@ -188,6 +204,7 @@ def main(argv=None):
     parser.add_argument("--pause-after-retrieve", action="store_true", help="配合 --checkpoint 在检索后暂停，输入 /resume 继续")
     parser.add_argument("--tools", action="store_true", help="配合 --langgraph 启用日期工具调用学习模式")
     parser.add_argument("--agent-loop", action="store_true", help="配合 --tools 启用最多两次工具调用的循环")
+    parser.add_argument("--tool-human-input", action="store_true", help="配合 --tools --checkpoint 在缺少日期时暂停，请用户补充")
     args = parser.parse_args(argv)
     if args.ingest:
         return ingest_legal_corpus()
@@ -203,6 +220,8 @@ def main(argv=None):
         parser.error("--tools 需要配合 --langgraph 使用")
     if args.agent_loop and not args.tools:
         parser.error("--agent-loop 需要配合 --langgraph --tools 使用")
+    if args.tool_human_input and (not args.tools or not args.checkpoint):
+        parser.error("--tool-human-input 需要配合 --langgraph --tools --checkpoint 使用")
     if args.checkpoint and not args.langgraph:
         parser.error("--checkpoint 需要配合 --langgraph 使用")
     if args.checkpoint and args.profile:
@@ -229,6 +248,8 @@ def main(argv=None):
         service_options["enable_tools"] = True
     if args.agent_loop:
         service_options["agent_loop"] = True
+    if args.tool_human_input:
+        service_options["tool_human_input"] = True
     service = create_conversation_service(**service_options)
     try:
         return run_cli(service, trace=True) if args.trace else run_cli(service)
