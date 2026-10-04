@@ -1,0 +1,28 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: legal-rag-postgres
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5433:5432"
+    environment:
+      POSTGRES_DB: legal_rag
+      POSTGRES_USER: legal_rag
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U legal_rag -d legal_rag"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+secrets:
+  postgres_password:
+    file: .postgres-password
+
+volumes:
+  postgres_data:
+    name: legal-rag-postgres-data

@@ -21,6 +21,7 @@ from langgraph_rag import LangGraphConversationService, build_langgraph_rag
 from performance import measure
 from query_decomposition import CompositeQuestionDecomposer
 from query_rewrite import RetrievalQuestionRewriter
+from rag_permissions import validated_scope, scoped_filter, accessible_documents
 
 from rag_pipeline_articles import (
     SiliconFlowReranker,
@@ -51,22 +52,16 @@ def _create_candidate_retriever(
     vectorstore, laws, candidate_k, filter_enabled, hybrid_retrieval, bm25_k,
 ):
     """Create vector-only retrieval, or add local BM25 candidates when enabled."""
-    if not hybrid_retrieval:
-        return RunnableLambda(
-            lambda state: measure(
-                state, "chroma",
-                lambda: vectorstore.similarity_search(
-                    state["retrieval_question"],
-                    k=candidate_k,
-                    filter=resolve_filter(state, laws, enabled=filter_enabled),
-                ),
-            )
-        )
-
-    bm25 = BM25Retriever.from_vectorstore(vectorstore)
+    bm25 = BM25Retriever.from_vectorstore(vectorstore) if hybrid_retrieval else None
 
     def retrieve(state):
         metadata_filter = resolve_filter(state, laws, enabled=filter_enabled)
+        scope = None
+        if 'allowed_knowledge_bases' in state:
+            scope = validated_scope(state['allowed_knowledge_bases'])
+            if not scope:
+                return []
+            metadata_filter = scoped_filter(metadata_filter, scope)
         vector_documents = measure(
             state, "chroma",
             lambda: vectorstore.similarity_search(
@@ -78,8 +73,9 @@ def _create_candidate_retriever(
             lambda: bm25.search(
                 state["retrieval_question"], k=bm25_k, metadata_filter=metadata_filter,
             ),
-        )
-        return merge_retrieval_candidates(vector_documents, bm25_documents)
+        ) if bm25 is not None else []
+        documents = merge_retrieval_candidates(vector_documents, bm25_documents) if bm25 is not None else vector_documents
+        return accessible_documents(documents, scope) if scope is not None else documents
 
     return RunnableLambda(retrieve)
 
@@ -399,6 +395,7 @@ def create_web_rag_turn():
 请给出清晰、谨慎的回答，并尽可能引用相关条文或页码。
 """)
     return StreamingRagTurn(
+        require_authorization=True,
         rewriter=RetrievalQuestionRewriter(rewrite_model, load_guides()),
         retriever=retriever,
         reranker=reranker,

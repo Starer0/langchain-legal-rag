@@ -218,6 +218,7 @@ class CreateRagChainBehaviorTests(unittest.TestCase):
 
         self.assertEqual(result, streaming_turn.return_value)
         self.assertEqual(streaming_turn.call_args.kwargs["history_turns"], 3)
+        self.assertTrue(streaming_turn.call_args.kwargs['require_authorization'])
         self.assertIn("rewriter", streaming_turn.call_args.kwargs)
         self.assertIn("retriever", streaming_turn.call_args.kwargs)
         self.assertIn("reranker", streaming_turn.call_args.kwargs)

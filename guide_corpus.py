@@ -4,6 +4,7 @@ import json
 import re
 
 from langchain_core.documents import Document
+from corpus_metadata import knowledge_base_id
 
 
 CHAPTER_RE = re.compile(r"^第[一二三四五六七八九十]+章\s+.+$")
@@ -13,6 +14,7 @@ PAGE_NUMBER_RE = re.compile(r"^\d+$")
 
 def prepare_guide(pages, guide):
     """Split a guide at its natural section boundaries and retain headings."""
+    knowledge_base_id(guide)
     chunks = []
     chapter = ""
     current = None

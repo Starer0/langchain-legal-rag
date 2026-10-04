@@ -12,7 +12,7 @@ class FakeRewriter:
         self.rewritten_question = rewritten_question
         self.calls = []
 
-    def rewrite(self, question, history):
+    def rewrite(self, question, history, *, allowed_knowledge_bases=None):
         self.calls.append((question, list(history)))
         return RetrievalPlan(self.rewritten_question, include_guide=False)
 

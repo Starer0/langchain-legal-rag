@@ -8,6 +8,7 @@ from guide_corpus import prepare_guide
 
 ROOT = Path(__file__).resolve().parents[1]
 GUIDE = {
+    "knowledge_base_id": "C",
     "document_id": "labor_arbitration_guide_experimental_city",
     "document_type": "办事指南",
     "title": "劳动争议仲裁办事指南",
@@ -22,6 +23,15 @@ class GuideParsingTests(unittest.TestCase):
     def setUp(self):
         path = ROOT / "data" / GUIDE["source_file"]
         self.pages = PyPDFLoader(str(path)).load()
+
+    def test_every_guide_chunk_inherits_its_knowledge_base(self):
+        docs = prepare_guide(self.pages, GUIDE)
+        self.assertEqual({doc.metadata.get('knowledge_base_id') for doc in docs}, {'C'})
+
+    def test_guide_chunking_rejects_missing_or_invalid_knowledge_base(self):
+        for label in (None, '', ' C ', ['C'], 'A/B'):
+            with self.subTest(label=label), self.assertRaisesRegex(ValueError, 'knowledge_base_id'):
+                prepare_guide(self.pages, {**GUIDE, 'knowledge_base_id': label})
 
     def test_preserves_the_guide_natural_retrieval_units(self):
         docs = prepare_guide(self.pages, GUIDE)

@@ -8,8 +8,25 @@
     <link rel="stylesheet" href="/static/styles.css">
   </head>
   <body>
+    <p id="auth-loading" class="auth-loading" role="status">正在检查登录状态…</p>
+    <main id="login-panel" class="login-panel" hidden>
+      <section class="login-card" aria-labelledby="login-title">
+        <p class="eyebrow">LEGAL RAG</p>
+        <h1 id="login-title">登录法律法规问答</h1>
+        <p class="login-description">使用你的账号登录，继续查看和保存自己的对话。</p>
+        <form id="login-form">
+          <label for="login-username">用户名</label>
+          <input id="login-username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="32" required>
+          <label for="login-password">密码</label>
+          <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+          <p id="login-error" class="login-error" role="alert"></p>
+          <button id="login-button" type="submit">登录</button>
+        </form>
+        <p class="login-note">账号由企业提供。请使用分配给你的用户名和密码。</p>
+      </section>
+    </main>
     <a class="skip-link" href="#question">跳至提问</a>
-    <div class="workspace">
+    <div class="workspace" id="workspace" hidden>
       <aside class="conversation-sidebar" aria-label="对话列表">
         <div class="sidebar-heading"><span>法律法规问答</span><button id="new-conversation" type="button">+ 新建对话</button></div>
         <nav id="conversation-list" aria-label="历史对话"></nav>
@@ -20,7 +37,7 @@
           <p class="eyebrow">LEGAL RAG</p>
           <h1 id="current-conversation-title">新对话</h1>
         </div>
-        <p class="header-note">基于已收录法规检索生成</p>
+        <div class="account-controls"><span id="current-user"></span><button id="logout-button" type="button" class="secondary-button">退出登录</button></div>
       </header>
 
       <section class="notice" aria-label="使用说明">

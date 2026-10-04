@@ -11,12 +11,14 @@ import legal_corpus as corpus
 
 
 LAW = {
+    "knowledge_base_id": "B",
     "law_id": "labor_contract_law", "law_name": "中华人民共和国劳动合同法",
     "aliases": ["劳动合同法"], "source_file": "law.pdf", "version": "2012-12-28",
     "effective_date": "2013-07-01", "status": "现行有效", "expected_articles": 2,
     "source_url": "https://example.org/law",
 }
 GUIDE = {
+    "knowledge_base_id": "C",
     "document_id": "labor_arbitration_guide", "document_type": "办事指南",
     "title": "劳动争议仲裁办事指南", "source_file": "guide.pdf",
     "version": "2026-09", "status": "实验资料", "content_start_page": 1,
@@ -45,6 +47,16 @@ class LocalEmbeddings(Embeddings):
 
 
 class CorpusParsingTests(unittest.TestCase):
+    def test_law_chunks_inherit_the_registered_knowledge_base(self):
+        docs = corpus.prepare_law(PAGES, LAW)
+        self.assertEqual({doc.metadata.get('knowledge_base_id') for doc in docs}, {'B'})
+
+    def test_law_chunking_rejects_missing_or_invalid_knowledge_base(self):
+        for label in (None, '', ' B ', ['B'], 'A/B'):
+            law = {**LAW, 'knowledge_base_id': label}
+            with self.subTest(label=label), self.assertRaisesRegex(ValueError, 'knowledge_base_id'):
+                corpus.prepare_law(PAGES, law)
+
     def test_preserves_cross_page_article_and_excludes_editorial_appendix(self):
         docs = corpus.prepare_law(PAGES, LAW)
         self.assertEqual([d.metadata["article"] for d in docs], ["第一条", "第二条"])
@@ -90,6 +102,67 @@ class CorpusIndexTests(unittest.TestCase):
 
     def status(self):
         return corpus.inspect_corpus_status("test-model", self.catalog, self.db)
+
+    def test_catalog_rejects_unregistered_knowledge_base(self):
+        for entry in ({key: value for key, value in LAW.items() if key != 'knowledge_base_id'},
+                      {**LAW, 'knowledge_base_id': ' B '}):
+            self.catalog.write_text(json.dumps([entry]), encoding='utf8')
+            with self.assertRaisesRegex(ValueError, 'knowledge_base_id'):
+                corpus.load_catalog(self.catalog)
+
+    def test_guide_catalog_rejects_missing_or_invalid_knowledge_base(self):
+        (self.root / 'data' / 'guide.pdf').write_bytes(b'guide-pdf')
+        for label in (None, '', ' C ', ['C']):
+            (self.root / 'data' / 'guides.json').write_text(json.dumps([{**GUIDE, 'knowledge_base_id': label}]), encoding='utf8')
+            with self.subTest(label=label), self.assertRaisesRegex(ValueError, 'knowledge_base_id'):
+                corpus.load_guides(self.catalog)
+
+    @patch('legal_corpus.PyPDFLoader')
+    def test_open_and_repeat_ingest_reject_wrong_stored_labels(self, loader):
+        loader.return_value.load.return_value = PAGES
+        manifest = self.ingest()
+        manifest_path = self.db / 'manifest.json'
+        original = manifest_path.read_bytes()
+        collection = corpus.chromadb.PersistentClient(path=str(self.db)).get_collection(manifest['collection'])
+        stored = collection.get()
+        collection.update(ids=stored['ids'], metadatas=[{**m, 'knowledge_base_id': 'A'} for m in stored['metadatas']])
+        for operation in (self.open, self.ingest):
+            with self.assertRaisesRegex(ValueError, 'knowledge_base_id'):
+                operation()
+        self.assertEqual(manifest_path.read_bytes(), original)
+
+    @patch('legal_corpus.PyPDFLoader')
+    def test_resumed_import_with_wrong_labels_cannot_replace_published_manifest(self, loader):
+        loader.return_value.load.return_value = PAGES
+        self.ingest()
+        original = (self.db / 'manifest.json').read_bytes()
+        law = {**LAW, 'knowledge_base_id': 'A'}
+        self.catalog.write_text(json.dumps([law]), encoding='utf8')
+        fingerprint, _ = corpus.corpus_fingerprint([law], 'test-model', self.catalog)
+        docs = corpus.prepare_law(PAGES, law)
+        ids = [f"{d.metadata['law_id']}:{d.metadata['version']}:{d.metadata['article']}" for d in docs]
+        for doc in docs: doc.metadata['knowledge_base_id'] = 'B'
+        corpus._store(self.embeddings, self.db, f'legal_{fingerprint[:24]}').add_documents(docs, ids=ids)
+        with self.assertRaisesRegex(ValueError, 'knowledge_base_id'):
+            self.ingest()
+        self.assertEqual((self.db / 'manifest.json').read_bytes(), original)
+
+    @patch('legal_corpus.PyPDFLoader')
+    def test_group_change_builds_new_tagged_index_and_preserves_old_index(self, loader):
+        loader.return_value.load.return_value = PAGES
+        first = self.ingest()
+        self.catalog.write_text(json.dumps([{**LAW, 'knowledge_base_id': 'A'}]), encoding='utf8')
+        self.assertTrue(self.status()['needs_ingest'])
+        with self.assertRaisesRegex(ValueError, '导入'):
+            self.open()
+        second = self.ingest()
+        self.assertNotEqual(first['collection'], second['collection'])
+        store, _, _ = self.open()
+        self.assertEqual(len(store.get(where={'knowledge_base_id': 'A'})['ids']), 2)
+        self.assertEqual(store.get(where={'knowledge_base_id': 'B'})['ids'], [])
+        client = corpus.chromadb.PersistentClient(path=str(self.db))
+        self.assertEqual(client.get_collection(first['collection']).count(), 2)
+        self.assertEqual(second['sources'][0]['knowledge_base_id'], 'A')
 
     def test_status_reports_all_sources_as_pending_before_first_ingest(self):
         status = self.status()

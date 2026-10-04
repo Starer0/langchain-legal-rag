@@ -1,4 +1,5 @@
 import { renderMarkdown } from "/static/markdown.mjs";
+import { createAuthClient } from "/static/auth-client.mjs";
 
 const form = document.querySelector("#chat-form");
 const questionInput = document.querySelector("#question");
@@ -15,6 +16,8 @@ const stageLabels = {
 let conversations = [];
 let currentConversationId = null;
 let isGenerating = false;
+let workspaceReady = false;
+let initializingRevision = null;
 const conversationList = document.querySelector("#conversation-list");
 const conversationTitle = document.querySelector("#current-conversation-title");
 const newConversationButton = document.querySelector("#new-conversation");
@@ -24,6 +27,78 @@ const renameInput = document.querySelector("#rename-input");
 const renameError = document.querySelector("#rename-error");
 const renameCancelButton = document.querySelector("#rename-cancel");
 let renamingConversation = null;
+const workspace = document.querySelector('#workspace');
+const loginPanel = document.querySelector('#login-panel');
+const loginForm = document.querySelector('#login-form');
+const loginUsername = document.querySelector('#login-username');
+const loginPassword = document.querySelector('#login-password');
+const loginError = document.querySelector('#login-error');
+const loginButton = document.querySelector('#login-button');
+const logoutButton = document.querySelector('#logout-button');
+const authLoading = document.querySelector('#auth-loading');
+const currentUserLabel = document.querySelector('#current-user');
+const authClient = createAuthClient({
+  onSignedOut: wasSignedIn => showLogin(wasSignedIn ? '登录已失效，请重新登录。' : ''),
+  onSignedIn: async (user, changed) => {
+    authLoading.hidden = true;
+    loginPanel.hidden = true;
+    workspace.hidden = false;
+    currentUserLabel.textContent = user.username;
+    if (changed) clearPrivateContent();
+    if (workspaceReady || initializingRevision === authClient.revision) return;
+    const revision = authClient.revision;
+    initializingRevision = revision;
+    sendButton.disabled = true;
+    newConversationButton.disabled = true;
+    setStatus('正在加载你的对话…');
+    try {
+      if (!await loadConversations()) return;
+      setStatus('');
+      if (!conversations.length) await createConversation();
+      else await selectConversation(conversations[0].id);
+      if (revision !== authClient.revision || !currentConversationId) return;
+      workspaceReady = true;
+      sendButton.disabled = false;
+      newConversationButton.disabled = false;
+    } catch {
+      if (revision === authClient.revision) {
+        setStatus('对话暂时无法加载，请刷新页面重试。', true);
+        newConversationButton.disabled = false;
+      }
+    } finally {
+      if (initializingRevision === revision) initializingRevision = null;
+    }
+  },
+});
+const apiFetch = (url, options) => authClient.request(url, options);
+
+function clearPrivateContent() {
+  workspaceReady = false;
+  isGenerating = false;
+  sendButton.disabled = true;
+  newConversationButton.disabled = true;
+  logoutButton.disabled = false;
+  conversations = [];
+  currentConversationId = null;
+  conversationList.replaceChildren();
+  messageLog.replaceChildren();
+  questionInput.value = '';
+  conversationTitle.textContent = '新对话';
+  setStatus('');
+  renamingConversation = null;
+  if (renameDialog.open) renameDialog.close();
+}
+
+function showLogin(message = '') {
+  clearPrivateContent();
+  authLoading.hidden = true;
+  workspace.hidden = true;
+  loginPanel.hidden = false;
+  currentUserLabel.textContent = '';
+  loginPassword.value = '';
+  loginError.textContent = message;
+  loginUsername.focus();
+}
 
 function setStatus(message, isError = false) {
   statusArea.textContent = message;
@@ -98,17 +173,24 @@ async function receiveStream(response, onEvent) {
 }
 
 async function sendQuestion(question) {
+  const owner = authClient.user?.id;
+  const revision = authClient.revision;
   const pendingUser = appendMessage("user", question);
   let assistantMessage = null;
   let streamedAnswer = "";
+  let requestId = null;
+  let completed = false;
+  let response = null;
   try {
-    const response = await fetch(`/api/conversations/${currentConversationId}/chat`, {
+    response = await apiFetch(`/api/conversations/${currentConversationId}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question }),
     });
-    if (!response.ok) throw new Error("请求未成功");
+    requestId = response.headers.get("X-Request-ID");
+    if (!response.ok) throw new Error("请求未成功，请稍后重试。");
     await receiveStream(response, ({ event, data }) => {
+      if (authClient.user?.id !== owner || authClient.revision !== revision) throw new Error('登录状态已变化。');
       if (event === "status") setStatus(stageLabels[data.stage] || "正在处理…");
       if (event === "delta") {
         assistantMessage ||= appendMessage("assistant");
@@ -116,30 +198,44 @@ async function sendQuestion(question) {
         renderMarkdown(assistantMessage.querySelector(".message-content"), streamedAnswer);
       }
       if (event === "done") {
+        completed = true;
         if (!assistantMessage) assistantMessage = appendMessage("assistant", data.answer);
         else renderMarkdown(assistantMessage.querySelector(".message-content"), data.answer);
         addSources(assistantMessage, data.sources);
         setStatus("");
       }
-      if (event === "error") throw new Error(data.message || "暂时无法完成回答，请稍后重试。");
+      if (event === "error") {
+        requestId = data.request_id || requestId;
+        throw new Error(data.message || "暂时无法完成回答，请稍后重试。");
+      }
     });
+    if (!completed) throw new Error("回答连接已中断，请重试。");
   } catch (error) {
     pendingUser.remove();
     assistantMessage?.remove();
+    if (authClient.user?.id !== owner || authClient.revision !== revision) return;
     questionInput.value = question;
-    setStatus(error.message || "网络连接中断，请重试。", true);
+    const message = error.message || "网络连接中断，请重试。";
+    setStatus(requestId ? `${message} 请求编号：${requestId}` : message, true);
+  } finally {
+    if (response) authClient.release(response);
   }
 }
 
 async function loadHistory() {
+  const owner = authClient.user?.id;
+  const revision = authClient.revision;
+  const conversationId = currentConversationId;
   try {
-    const response = await fetch(`/api/conversations/${currentConversationId}/messages`);
+    const response = await apiFetch(`/api/conversations/${currentConversationId}/messages`);
     if (!response.ok) throw new Error("无法读取历史对话");
     const { messages } = await response.json();
+    if (authClient.user?.id !== owner || authClient.revision !== revision || currentConversationId !== conversationId) return;
     messageLog.replaceChildren();
     if (!messages.length) showWelcome();
     messages.forEach(({ role, content }) => appendMessage(role, content));
   } catch {
+    if (authClient.user?.id !== owner || authClient.revision !== revision || currentConversationId !== conversationId) return;
     messageLog.replaceChildren();
     showWelcome();
     setStatus("历史对话暂时无法加载，仍可开始新对话。", true);
@@ -155,27 +251,88 @@ function renderConversations() {
     item.append(title, remove); conversationList.append(item);
   }
 }
-async function loadConversations() { const response = await fetch("/api/conversations"); if (!response.ok) throw new Error("无法读取对话列表"); conversations = (await response.json()).conversations; }
-async function selectConversation(id) { if (isGenerating || id === currentConversationId) return; currentConversationId = id; const current = conversations.find((item) => item.id === id); conversationTitle.textContent = current.title; messageLog.replaceChildren(); await loadHistory(); renderConversations(); }
-async function createConversation() { if (isGenerating) return; const response = await fetch("/api/conversations", {method:"POST"}); if (!response.ok) return setStatus("无法新建对话，请稍后重试。", true); const created = await response.json(); await loadConversations(); await selectConversation(created.id); questionInput.focus(); }
+async function loadConversations() {
+  const revision = authClient.revision;
+  const response = await apiFetch("/api/conversations");
+  if (!response.ok) throw new Error("无法读取对话列表");
+  const data = await response.json();
+  if (authClient.revision !== revision) return false;
+  conversations = data.conversations;
+  return true;
+}
+async function selectConversation(id) {
+  if (isGenerating || id === currentConversationId) return;
+  const current = conversations.find(item => item.id === id);
+  if (!current) return;
+  const revision = authClient.revision;
+  currentConversationId = id;
+  conversationTitle.textContent = current.title;
+  messageLog.replaceChildren();
+  await loadHistory();
+  if (authClient.revision !== revision) return;
+  renderConversations();
+}
+async function createConversation() {
+  if (isGenerating || !authClient.user) return;
+  const revision = authClient.revision;
+  const response = await apiFetch("/api/conversations", {method: "POST"});
+  if (authClient.revision !== revision) return;
+  if (!response.ok) throw new Error("无法新建对话，请稍后重试。");
+  const created = await response.json();
+  if (authClient.revision !== revision || !await loadConversations()) return;
+  await selectConversation(created.id);
+  if (authClient.revision !== revision) return;
+  workspaceReady = Boolean(currentConversationId);
+  sendButton.disabled = !workspaceReady;
+  newConversationButton.disabled = false;
+  questionInput.focus();
+}
 function openRenameDialog(conversation) { if (isGenerating) return; renamingConversation = conversation; renameInput.value = conversation.title; renameError.textContent = ""; renameDialog.showModal(); renameInput.focus(); renameInput.select(); }
-async function renameConversation() { const title = renameInput.value.trim(); if (!renamingConversation || !title) { renameError.textContent = "请输入 1 到 80 个字符。"; return; } const response = await fetch(`/api/conversations/${renamingConversation.id}`, {method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({title})}); if (!response.ok) { renameError.textContent = "标题需要 1 到 80 个字符。"; return; } renameDialog.close(); renamingConversation = null; await loadConversations(); const current = conversations.find((item) => item.id === currentConversationId); conversationTitle.textContent = current?.title || "新对话"; renderConversations(); }
-async function deleteConversation(id) { if (isGenerating || !window.confirm("删除后无法恢复这段对话，确定删除吗？")) return; const response = await fetch(`/api/conversations/${id}`, {method:"DELETE"}); if (!response.ok) return setStatus("无法删除对话，请稍后重试。", true); await loadConversations(); currentConversationId = null; if (conversations.length) await selectConversation(conversations[0].id); else await createConversation(); }
+async function renameConversation() {
+  const title = renameInput.value.trim();
+  if (!renamingConversation || !title) { renameError.textContent = "请输入 1 到 80 个字符。"; return; }
+  const revision = authClient.revision;
+  const response = await apiFetch(`/api/conversations/${renamingConversation.id}`, {method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({title})});
+  if (authClient.revision !== revision) return;
+  if (!response.ok) { renameError.textContent = "标题需要 1 到 80 个字符。"; return; }
+  renameDialog.close();
+  renamingConversation = null;
+  if (!await loadConversations()) return;
+  const current = conversations.find(item => item.id === currentConversationId);
+  conversationTitle.textContent = current?.title || "新对话";
+  renderConversations();
+}
+async function deleteConversation(id) {
+  if (isGenerating || !window.confirm("删除后无法恢复这段对话，确定删除吗？")) return;
+  const revision = authClient.revision;
+  const response = await apiFetch(`/api/conversations/${id}`, {method:"DELETE"});
+  if (authClient.revision !== revision) return;
+  if (!response.ok) return setStatus("无法删除对话，请稍后重试。", true);
+  if (!await loadConversations()) return;
+  currentConversationId = null;
+  if (conversations.length) await selectConversation(conversations[0].id);
+  else await createConversation();
+}
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const question = questionInput.value.trim();
-  if (!question) return;
+  if (!question || !workspaceReady || isGenerating || !currentConversationId) return;
+  const revision = authClient.revision;
   questionInput.value = "";
   sendButton.disabled = true;
+  logoutButton.disabled = true;
   isGenerating = true;
   newConversationButton.disabled = true;
   renderConversations();
   await sendQuestion(question);
+  if (authClient.revision !== revision) return;
   sendButton.disabled = false;
+  logoutButton.disabled = false;
   isGenerating = false;
   newConversationButton.disabled = false;
-  await loadConversations();
+  if (!authClient.user) return;
+  if (!await loadConversations()) return;
   const current = conversations.find((item) => item.id === currentConversationId);
   conversationTitle.textContent = current?.title || "新对话";
   renderConversations();
@@ -189,7 +346,35 @@ questionInput.addEventListener("keydown", (event) => {
   }
 });
 
-newConversationButton.addEventListener("click", createConversation);
+newConversationButton.addEventListener("click", async () => {
+  try { await createConversation(); }
+  catch { setStatus("无法新建对话，请稍后重试。", true); }
+});
 renameForm.addEventListener("submit", async (event) => { event.preventDefault(); await renameConversation(); });
 renameCancelButton.addEventListener("click", () => { renameDialog.close(); renamingConversation = null; });
-(async () => { await loadConversations(); if (!conversations.length) await createConversation(); else await selectConversation(conversations[0].id); })();
+loginForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  loginButton.disabled = true;
+  loginButton.textContent = '正在登录…';
+  loginError.textContent = '';
+  try { await authClient.login(loginUsername.value.trim(), loginPassword.value); }
+  catch (error) { loginError.textContent = error.message || '暂时无法登录，请稍后重试。'; }
+  finally { loginPassword.value = ''; loginButton.disabled = false; loginButton.textContent = '登录'; }
+});
+logoutButton.addEventListener('click', async () => {
+  if (isGenerating) return;
+  logoutButton.disabled = true;
+  try { await authClient.logout(); showLogin('你已退出登录。'); }
+  catch (error) { setStatus(error.message || '退出未完成，请重试。', true); }
+  finally { logoutButton.disabled = false; }
+});
+async function checkIdentity() {
+  try { await authClient.check(); }
+  catch (error) {
+    if (!authClient.user) showLogin(error.message || '无法检查登录状态，请刷新重试。');
+    else setStatus(error.message, true);
+  }
+}
+window.addEventListener('pageshow', checkIdentity);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkIdentity(); });
+checkIdentity();

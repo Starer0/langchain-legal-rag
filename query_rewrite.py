@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from langchain_core.messages import BaseMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from rag_permissions import validated_scope
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,8 @@ class RetrievalQuestionRewriter:
 
     def __init__(self, model, guides=()):
         self.model = model
+        guides = list(guides)
+        self.guide_scopes = [guide.get('knowledge_base_id') for guide in guides]
         self.guide_catalog = [
             {
                 "document_type": guide["document_type"],
@@ -54,11 +57,15 @@ class RetrievalQuestionRewriter:
             for guide in guides
         ]
 
-    def rewrite(self, question: str, history: Sequence[BaseMessage]) -> RetrievalPlan:
+    def rewrite(self, question: str, history: Sequence[BaseMessage], *, allowed_knowledge_bases=None) -> RetrievalPlan:
+        catalog = self.guide_catalog
+        if allowed_knowledge_bases is not None:
+            scope = validated_scope(allowed_knowledge_bases)
+            catalog = [entry for entry, label in zip(catalog, self.guide_scopes) if label in scope]
         prompt = HISTORY_AWARE_REWRITE_PROMPT if history else SINGLE_QUERY_REWRITE_PROMPT
         values = {
             "question": question,
-            "guide_catalog": json.dumps(self.guide_catalog, ensure_ascii=False),
+            "guide_catalog": json.dumps(catalog, ensure_ascii=False),
         }
         if history:
             values["history"] = list(history)

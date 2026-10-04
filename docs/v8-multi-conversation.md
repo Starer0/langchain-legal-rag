@@ -23,5 +23,6 @@ python -m uvicorn web_app:app --host 127.0.0.1 --port 8001
 
 ## 当前边界
 
-这是本地 MVP：SQLite 用于单机持久化，匿名 Cookie 用于浏览器隔离。面向多用户
-部署时，应替换为账户体系、服务端会话管理和 PostgreSQL 等生产级存储。
+V8.2 当时使用 SQLite 与匿名 Cookie。V12 已增加 PostgreSQL 存储并切换本机配置，
+匿名 Cookie 继续用于浏览器隔离；账户与登录会话仍待后续实现。
+当前启动与验收说明见 [网页后端接入 PostgreSQL](v12-3-postgres-web-storage.md)。

@@ -26,7 +26,7 @@ def parse_events(response):
 
 
 class SuccessfulTurn:
-    def stream(self, question, messages):
+    def stream(self, question, messages, *, allowed_knowledge_bases=None, trace=None):
         yield {"event": "status", "data": {"stage": "rewrite"}}
         yield {"event": "delta", "data": {"text": "完整"}}
         yield {
@@ -98,10 +98,11 @@ class WebAppTests(unittest.TestCase):
         client = TestClient(app)
 
         conversation = client.post("/api/conversations").json()["id"]
-        events = parse_events(client.post(f"/api/conversations/{conversation}/chat", json={"question": "问题"}))
+        response = client.post(f"/api/conversations/{conversation}/chat", json={"question": "问题"})
+        events = parse_events(response)
 
         self.assertEqual(events[-1], (
-            "error", {"message": "暂时无法完成回答，请稍后重试。"}
+            "error", {"message": "暂时无法完成回答，请稍后重试。", "request_id": response.headers["X-Request-ID"]}
         ))
         self.assertEqual(client.get(f"/api/conversations/{conversation}/messages").json()["messages"], [])
 

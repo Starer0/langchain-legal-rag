@@ -10,3 +10,11 @@ evals/results/
 data/web_rag.sqlite3
 data/langgraph_checkpoints.sqlite3*
 HANDOFF.md
+logs/
+frontend/node_modules/
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
+.postgres-password
+.demo-accounts.json
+data/backups/

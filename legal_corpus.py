@@ -10,6 +10,7 @@ import chromadb
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.documents import Document
+from corpus_metadata import knowledge_base_id
 
 from guide_corpus import prepare_guide
 from rag_pipeline_articles import split_by_articles
@@ -19,7 +20,7 @@ ROOT = Path(__file__).resolve().parent
 CATALOG_PATH = ROOT / "data" / "laws.json"
 GUIDES_FILENAME = "guides.json"
 DB_DIR = ROOT / "chroma_legal_db"
-SCHEMA_VERSION = "v7-articles-1"
+SCHEMA_VERSION = "v12-knowledge-bases-1"
 NUMERALS = "零一二三四五六七八九"
 ARTICLE_REF = re.compile(r"第\s*([零〇一二三四五六七八九十百千0-9\s]+?)\s*条")
 
@@ -65,6 +66,7 @@ def load_guides(catalog_path=CATALOG_PATH):
         raise ValueError("办事指南目录必须是列表")
     ids, files = set(), set()
     for guide in guides:
+        knowledge_base_id(guide)
         for key in ("document_id", "document_type", "title", "source_file", "version", "status"):
             if not isinstance(guide.get(key), str) or not guide[key].strip():
                 raise ValueError(f"办事指南目录缺少 {key}")
@@ -93,6 +95,7 @@ def load_catalog(catalog_path=CATALOG_PATH):
         raise ValueError("法律目录必须是非空列表")
     ids, files = set(), set()
     for law in laws:
+        knowledge_base_id(law)
         for key in ("law_id", "law_name", "source_file", "version", "effective_date", "status", "source_url"):
             if not isinstance(law.get(key), str) or not law[key].strip():
                 raise ValueError(f"法律目录缺少 {key}")
@@ -119,6 +122,7 @@ def load_catalog(catalog_path=CATALOG_PATH):
 
 
 def prepare_law(pages, law):
+    knowledge_base_id(law)
     cleaned = []
     stop = False
     for page in pages:
@@ -143,7 +147,7 @@ def prepare_law(pages, law):
         if not doc.page_content[len(article):].strip():
             raise ValueError(f"{law['law_name']} {article} 正文为空")
         doc.metadata.update({k: law[k] for k in (
-            "law_id", "law_name", "source_file", "source_url", "version", "effective_date", "status",
+            "law_id", "law_name", "source_file", "source_url", "version", "effective_date", "status", "knowledge_base_id",
         )})
         doc.metadata["index_status"] = "active"
         doc.metadata["pages"] = json.dumps(doc.metadata["pages"])
@@ -166,6 +170,7 @@ def _source_inventory(laws, guides, files):
     for law in laws:
         inventory.append({
             "source_id": law["law_id"],
+            "knowledge_base_id": law["knowledge_base_id"],
             "source_type": "law",
             "source_file": law["source_file"],
             "version": law["version"],
@@ -174,6 +179,7 @@ def _source_inventory(laws, guides, files):
     for guide in guides:
         inventory.append({
             "source_id": guide["document_id"],
+            "knowledge_base_id": guide["knowledge_base_id"],
             "source_type": "guide",
             "source_file": guide["source_file"],
             "version": guide["version"],
@@ -264,6 +270,23 @@ def _store(embeddings, db_dir, collection):
     return Chroma(collection_name=collection, persist_directory=str(db_dir), embedding_function=embeddings)
 
 
+def _validate_index_labels(store, laws, guides):
+    expected = {}
+    for entry in [*laws, *guides]:
+        field = 'law_id' if 'law_id' in entry else 'document_id'
+        expected[(field, entry[field], entry['version'])] = entry
+    stored = store.get(include=['metadatas'])
+    for identifier, metadata in zip(stored['ids'], stored['metadatas']):
+        metadata = metadata or {}
+        field = 'law_id' if metadata.get('law_id') else 'document_id'
+        source_id, version = metadata.get(field), metadata.get('version')
+        entry = expected.get((field, source_id, version))
+        if (entry is None or not identifier.startswith(f'{source_id}:{version}:')
+                or metadata.get('source_file') != entry['source_file']
+                or metadata.get('knowledge_base_id') != entry['knowledge_base_id']):
+            raise ValueError('索引 knowledge_base_id 与资料登记不一致，未发布；请核对索引并重新导入')
+
+
 def ingest_corpus(embeddings, embedding_config, catalog_path=CATALOG_PATH, db_dir=DB_DIR):
     laws = load_catalog(catalog_path)
     guides = load_guides(catalog_path)
@@ -275,6 +298,7 @@ def ingest_corpus(embeddings, embedding_config, catalog_path=CATALOG_PATH, db_di
         if saved["fingerprint"] == fingerprint:
             store = _store(embeddings, db_dir, saved["collection"])
             if store._collection.count() == saved.get("chunk_count", saved["article_count"]):
+                _validate_index_labels(store, laws, guides)
                 if "sources" not in saved:
                     saved["sources"] = _source_inventory(laws, guides, files)
                     temporary = db_dir / "manifest.pending.json"
@@ -315,6 +339,7 @@ def ingest_corpus(embeddings, embedding_config, catalog_path=CATALOG_PATH, db_di
         print(f"导入法条：{min(offset + 32, len(pending))}/{len(pending)}", flush=True)
     if set(store.get(include=[])["ids"]) != set(ids):
         raise RuntimeError("索引数量或法条 ID 校验失败，未发布新索引")
+    _validate_index_labels(store, laws, guides)
     manifest = {
         "schema": SCHEMA_VERSION, "fingerprint": fingerprint, "collection": collection,
         "embedding": embedding_config, "files": files, "law_counts": counts,
@@ -341,6 +366,7 @@ def open_corpus(embeddings, embedding_config, catalog_path=CATALOG_PATH, db_dir=
     store = _store(embeddings, db_dir, manifest["collection"])
     if store._collection.count() != manifest.get("chunk_count", manifest["article_count"]):
         raise ValueError("知识库不完整，请重新导入：python main.py --ingest")
+    _validate_index_labels(store, laws, guides)
     return store, manifest, laws
 
 
