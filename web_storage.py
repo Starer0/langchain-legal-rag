@@ -1,11 +1,13 @@
 """SQLite persistence for anonymous web-chat conversations."""
 
 import secrets
+import json
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from source_snapshots import snapshot_sources, history_message
 
 
 @dataclass(frozen=True)
@@ -68,16 +70,29 @@ class SQLiteConversationStore:
             rows = connection.execute("SELECT role, content FROM conversation_messages WHERE conversation_id = ? ORDER BY ordinal", (conversation_id,)).fetchall()
         return rows
 
-    def save_complete_conversation_turn(self, session_id, conversation_id, question, answer):
+    def load_conversation_history(self, session_id, conversation_id):
+        with self._connection() as connection:
+            if connection.execute('SELECT 1 FROM conversations WHERE id=? AND session_id=?', (conversation_id, session_id)).fetchone() is None:
+                return None
+            rows = connection.execute('SELECT m.role,m.content,s.sources FROM conversation_messages m '
+                                      'LEFT JOIN conversation_sources s ON s.conversation_id=m.conversation_id AND s.ordinal=m.ordinal '
+                                      'WHERE m.conversation_id=? ORDER BY m.ordinal', (conversation_id,)).fetchall()
+            return [history_message(role, content, json.loads(sources) if sources else None) for role, content, sources in rows]
+
+    def save_complete_conversation_turn(self, session_id, conversation_id, question, answer, *, sources=None):
         if not question.strip() or not answer.strip():
             raise ValueError("问题和回答不能为空")
         now = _utc_now()
+        snapshot = snapshot_sources(sources)
         with self._connection() as connection:
             row = connection.execute("SELECT title, title_is_custom FROM conversations WHERE id = ? AND session_id = ?", (conversation_id, session_id)).fetchone()
             if row is None:
                 return None
             ordinal = connection.execute("SELECT COALESCE(MAX(ordinal), 0) + 1 FROM conversation_messages WHERE conversation_id = ?", (conversation_id,)).fetchone()[0]
             connection.executemany("INSERT INTO conversation_messages VALUES (?, ?, ?, ?, ?)", [(conversation_id, ordinal, "user", question, now), (conversation_id, ordinal + 1, "assistant", answer, now)])
+            if snapshot:
+                connection.execute('INSERT INTO conversation_sources VALUES (?,?,?)',
+                                   (conversation_id, ordinal + 1, json.dumps(snapshot, ensure_ascii=False)))
             title = row[0]
             if not row[1] and title == "新对话":
                 title = _title_from_question(question)
@@ -108,6 +123,7 @@ class SQLiteConversationStore:
             CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY);
             CREATE TABLE IF NOT EXISTS conversations (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id), title TEXT NOT NULL, title_is_custom INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS conversation_messages (conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, ordinal INTEGER NOT NULL, role TEXT NOT NULL CHECK(role IN ('user','assistant')), content TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(conversation_id, ordinal));
+            CREATE TABLE IF NOT EXISTS conversation_sources (conversation_id TEXT NOT NULL, ordinal INTEGER NOT NULL, sources TEXT NOT NULL, PRIMARY KEY(conversation_id,ordinal), FOREIGN KEY(conversation_id,ordinal) REFERENCES conversation_messages(conversation_id,ordinal) ON DELETE CASCADE);
         """)
         if not connection.execute("SELECT 1 FROM schema_migrations WHERE name = 'v8_to_v82_conversations'").fetchone():
             for session_id, in connection.execute("SELECT DISTINCT session_id FROM messages").fetchall():

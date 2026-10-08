@@ -46,6 +46,8 @@ class WebLoginTests(unittest.TestCase):
         self.credentials = {item['username']: item for item in json.loads(credentials.read_text())['accounts']}
         from prepare_web_login import prepare_login
         prepare_login(self.db, apply=True, schema=self.schema)
+        from prepare_source_history import prepare_sources
+        prepare_sources(self.db, apply=True, schema=self.schema)
         from account_storage import PostgresAccountStore
         from login_sessions import PostgresLoginSessions
         from postgres_storage import PostgresUserConversationStore
@@ -88,6 +90,62 @@ class WebLoginTests(unittest.TestCase):
                 cursor.execute(sql.SQL('DELETE FROM {}.account_level_libraries WHERE level_id=%s AND knowledge_base_id=%s').format(sql.Identifier(self.schema)), ('level_ab', 'B'))
             client.post(url, json={'question': '继续'})
             self.assertEqual(turn.scopes[-1], frozenset({'A'}))
+
+    def test_background_task_requires_login_csrf_owner_and_server_scope(self):
+        import time
+        from fastapi.testclient import TestClient
+        from web_app import create_app
+        from prepare_generation_tasks import prepare_tasks
+        prepare_tasks(self.db, apply=True, schema=self.schema)
+        class Turn:
+            scopes = []
+            def stream(inner, question, messages, **options):
+                inner.scopes.append(options['allowed_knowledge_bases'])
+                yield {'event': 'delta', 'data': {'text': '任务回答'}}
+                yield {'event': 'done', 'data': {'answer': '任务回答', 'sources': []}}
+        turn = Turn()
+        app = create_app(self.store, turn, authentication=self.auth, background_tasks=True)
+        with TestClient(app) as client, TestClient(app) as colleague:
+            self.assertEqual(client.get('/api/conversations/generation/active').status_code, 401)
+            self.login_client(client)
+            self.login_client(colleague, 'demo_c')
+            cid = client.post('/api/conversations').json()['id']
+            url = f'/api/conversations/{cid}/tasks'
+            payload = {'question': '问题', 'submission_key': 'key', 'allowed_knowledge_bases': ['C']}
+            self.assertEqual(client.post(url, json=payload, headers={'X-CSRF-Token': 'wrong'}).status_code, 403)
+            self.assertEqual(colleague.post(url, json=payload).status_code, 404)
+            response = client.post(url, json=payload)
+            self.assertEqual(response.status_code, 202)
+            tid = response.json()['id']
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                if client.get(url + '/' + tid).json()['status'] == 'completed': break
+                time.sleep(.01)
+            else: self.fail('task did not complete')
+            self.assertEqual(turn.scopes, [frozenset({'A', 'B'})])
+            self.assertEqual(colleague.get(url + '/' + tid).status_code, 404)
+            self.assertEqual(client.post(url, json=payload).json()['id'], tid)
+            self.assertEqual(len(self.store.load_conversation_messages(response.json()['owner_id'], cid)), 2)
+
+    def test_account_history_restores_snapshot_and_denies_other_account(self):
+        from fastapi.testclient import TestClient
+        from web_app import create_app
+        class SnapshotTurn:
+            def stream(inner, question, messages, **options):
+                yield {'event': 'delta', 'data': {'text': '回答正文'}}
+                yield {'event': 'done', 'data': {'answer': '回答正文', 'sources': [
+                    {'law_name': '劳动合同法', 'content': '当时原文', 'pages': [4], 'knowledge_base_id': 'B'}]}}
+        app = create_app(self.store, SnapshotTurn(), authentication=self.auth)
+        with TestClient(app) as first, TestClient(app) as second:
+            self.login_client(first)
+            self.login_client(second, 'demo_c')
+            cid = first.post('/api/conversations').json()['id']
+            url = f'/api/conversations/{cid}'
+            self.assertIn('event: done', first.post(url+'/chat', json={'question': '问题'}).text)
+            history = first.get(url+'/messages').json()['messages']
+            self.assertEqual(history[1]['sources'][0]['content'], '当时原文')
+            self.assertEqual(history[1]['sources'][0]['knowledge_base_id'], 'B')
+            self.assertEqual(second.get(url+'/messages').status_code, 404)
 
     def test_chat_permission_failure_never_starts_answer(self):
         from unittest.mock import patch

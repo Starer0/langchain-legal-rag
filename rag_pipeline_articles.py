@@ -177,6 +177,7 @@ def format_sources(docs: list[Document]) -> list[dict[str, object]]:
             "title",
             "section",
             "chunk_kind",
+            "knowledge_base_id",
         ):
             if field in doc.metadata:
                 source[field] = doc.metadata[field]

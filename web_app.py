@@ -5,16 +5,19 @@ import mimetypes
 import os
 import traceback
 from _thread import LockType
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, ExitStack
+import logging
 from threading import Lock
 from pathlib import Path
 
+import anyio
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
 from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import BaseModel, Field, SecretStr
+from starlette.concurrency import run_in_threadpool
 from database_settings import postgres_settings, read_settings
 
 from rag_app import create_web_rag_turn
@@ -30,8 +33,31 @@ SAFE_ERROR_MESSAGE = "暂时无法完成回答，请稍后重试。"
 mimetypes.add_type("application/javascript", ".mjs")
 
 
+class _OwnedEventResponse(StreamingResponse):
+    """Close the synchronous stream even when the client disconnects."""
+
+    def __init__(self, stream, release):
+        self.stream = stream
+        self.release = release
+        super().__init__(stream, media_type="text/event-stream")
+
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            # Starlette waits for a running threadpool iteration before cancelling.
+            # Shield cleanup so cancellation cannot leave a suspended generator alive.
+            with anyio.CancelScope(shield=True):
+                await run_in_threadpool(self.stream.close)
+                self.release()  # Also covers disconnect before the generator starts.
+
+
 class ChatRequest(BaseModel):
     question: str
+
+class TaskRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=2000)
+    submission_key: str = Field(min_length=1, max_length=80)
 
 class RenameConversationRequest(BaseModel):
     title: str
@@ -43,11 +69,20 @@ class LoginRequest(BaseModel):
 
 
 def create_app(store, rag_turn, secure_cookies: bool = False, lifespan=None, authentication=None,
-               frontend_directory: Path | None = None) -> FastAPI:
+               frontend_directory: Path | None = None, background_tasks=False, recovery_config=None,
+               memory_store=None, memory_service=None, context_store=None, reflection_store=None) -> FastAPI:
     """Create a web app whose state is isolated by an opaque browser cookie."""
     app = FastAPI(lifespan=lifespan)
+    app.state.recovery_config = recovery_config
+    app.state.memory_store, app.state.memory_service = memory_store, memory_service
+    app.state.context_store = context_store
+    app.state.reflection_store = reflection_store
+    from reflection_api import install_reflection_routes
+    install_reflection_routes(app)
     if authentication is not None:
         app.add_middleware(AuthenticationMiddleware, authentication=authentication, secure_cookies=secure_cookies)
+        from memory_api import install_memory_routes
+        install_memory_routes(app)
     app.add_middleware(RequestLoggingMiddleware)
     static_directory = Path(__file__).parent / "web" / "static"
     app.mount("/static", StaticFiles(directory=static_directory), name="static")
@@ -62,6 +97,63 @@ def create_app(store, rag_turn, secure_cookies: bool = False, lifespan=None, aut
         app.mount("/assets", StaticFiles(directory=page_directory / "assets"), name="frontend-assets")
     locks: dict[str, LockType] = {}
     locks_guard = Lock()
+    runner = None
+
+    def task_runner():
+        nonlocal runner
+        from generation_tasks import TaskStore, GenerationRunner
+        with locks_guard:
+            if runner is None:
+                tasks = TaskStore(store, memory=app.state.memory_store, contexts=app.state.context_store,reflection=app.state.reflection_store)
+                if app.state.recovery_config is not None:
+                    from recovery_runner import RecoveryRunner
+                    runner = RecoveryRunner(tasks, rag_turn, **app.state.recovery_config)
+                    runner.recover()
+                else:
+                    tasks.interrupt_running()
+                    runner = GenerationRunner(tasks, rag_turn)
+        return runner
+
+    app.state.generation_runner = task_runner
+
+    if background_tasks:
+        @app.get('/api/conversations/generation/active')
+        def active_generation(request: Request):
+            owner, _ = session_for(request)
+            return {'task': task_runner().tasks.active(owner)}
+
+        @app.get('/api/conversations/{conversation_id}/tasks/{task_id}')
+        def generation_status(conversation_id: str, task_id: str, request: Request):
+            owner, _ = session_for(request)
+            task = task_runner().tasks.get(owner, conversation_id, task_id)
+            if task is None: raise HTTPException(404, '任务不存在')
+            return task
+
+        @app.post('/api/conversations/{conversation_id}/tasks', status_code=202)
+        def start_generation(conversation_id: str, payload: TaskRequest, request: Request):
+            owner, is_new = session_for(request)
+            if not store.conversation_belongs_to(owner, conversation_id): raise HTTPException(404, '对话不存在')
+            question = payload.question.strip()
+            if not question: raise HTTPException(422, '问题不能为空')
+            options = {}
+            if authentication is not None:
+                from rag_permissions import validated_scope
+                try:
+                    allowed = validated_scope(authentication.accounts.allowed_knowledge_bases(owner))
+                except Exception:
+                    raise HTTPException(503, '暂时无法确认资料权限，请稍后重试') from None
+                if not allowed: raise HTTPException(403, '当前账号没有可访问的资料库')
+                options['allowed_knowledge_bases'] = allowed
+                options['trace'] = RagRequestTrace(request_id=request.state.request_id, user_id=owner,
+                    conversation_id=conversation_id, allowed_knowledge_bases=allowed, logger=request.state.request_logger)
+            try:
+                task = task_runner().start(owner, conversation_id, question, payload.submission_key, request.state.request_id, options)
+            except LookupError: raise HTTPException(404, '对话不存在') from None
+            except ValueError as error: raise HTTPException(409, str(error)) from None
+            except RuntimeError: raise HTTPException(503, '服务繁忙，请稍后提交') from None
+            response = JSONResponse(task, status_code=202)
+            if is_new: set_session_cookie(response, owner)
+            return response
 
     def session_for(request: Request) -> tuple[str, bool]:
         if authentication is not None:
@@ -98,6 +190,8 @@ def create_app(store, rag_turn, secure_cookies: bool = False, lifespan=None, aut
         async def validation_error(request, error):
             if request.url.path == '/api/auth/login':
                 return JSONResponse({'detail': '请输入有效的用户名和密码'}, status_code=400, headers={'Cache-Control': 'no-store'})
+            if request.url.path == '/api/memory':
+                return JSONResponse({'detail': '请输入有效的记忆文本、开关和版本'}, status_code=422, headers={'Cache-Control': 'no-store'})
             from fastapi.exception_handlers import request_validation_exception_handler
             return await request_validation_exception_handler(request, error)
 
@@ -144,7 +238,7 @@ def create_app(store, rag_turn, secure_cookies: bool = False, lifespan=None, aut
     @app.get("/api/conversations")
     def conversations(request: Request):
         session_id, is_new = session_for(request)
-        response = JSONResponse({"conversations": [conversation_data(item) for item in store.list_conversations(session_id)]})
+        response = JSONResponse({"conversations": [conversation_data(item) for item in store.list_conversations(session_id)], 'background_tasks': background_tasks})
         if is_new:
             set_session_cookie(response, session_id)
         return response
@@ -169,14 +263,32 @@ def create_app(store, rag_turn, secure_cookies: bool = False, lifespan=None, aut
     @app.delete("/api/conversations/{conversation_id}", status_code=204)
     def delete_conversation(conversation_id: str, request: Request):
         session_id, _ = session_for(request)
+        if background_tasks:
+            deleted = task_runner().tasks.delete_conversation(session_id, conversation_id)
+            if deleted is False:
+                raise HTTPException(409, '回答生成期间不能删除该对话')
+            if deleted is None: raise HTTPException(404, '对话不存在')
+            if app.state.recovery_config is not None:
+                try: task_runner().cleanup()
+                except Exception:
+                    logging.getLogger('legal_rag.requests').warning('Checkpoint cleanup queued for next startup')
+            return
         if not store.delete_conversation(session_id, conversation_id): raise HTTPException(status_code=404, detail="对话不存在")
 
     @app.get("/api/conversations/{conversation_id}/messages")
     def history(conversation_id: str, request: Request):
         session_id, is_new = session_for(request)
-        messages = store.load_conversation_messages(session_id, conversation_id)
+        if background_tasks:
+            data = task_runner().tasks.history(session_id, conversation_id)
+            if data is None: raise HTTPException(404, '对话不存在')
+            response = JSONResponse(data)
+            if is_new: set_session_cookie(response, session_id)
+            return response
+        messages = store.load_conversation_history(session_id, conversation_id)
         if messages is None: raise HTTPException(status_code=404, detail="对话不存在")
-        response = JSONResponse({"messages": [{"role": role, "content": content} for role, content in messages]})
+        data = {"messages": messages}
+        if background_tasks: data['task'] = task_runner().tasks.latest(session_id, conversation_id)
+        response = JSONResponse(data)
         if is_new: set_session_cookie(response, session_id)
         return response
 
@@ -188,6 +300,8 @@ def create_app(store, rag_turn, secure_cookies: bool = False, lifespan=None, aut
 
         session_id, is_new = session_for(request)
         if not store.conversation_belongs_to(session_id, conversation_id): raise HTTPException(status_code=404, detail="对话不存在")
+        if background_tasks:
+            raise HTTPException(409, '请通过后台任务接口提交问题')
         stream_options = {}
         trace = None
         if authentication is not None:
@@ -208,6 +322,16 @@ def create_app(store, rag_turn, secure_cookies: bool = False, lifespan=None, aut
         if session_lock is None:
             raise HTTPException(status_code=409, detail="当前会话正在生成回答")
 
+        release_guard = Lock()
+        released = False
+
+        def release_once():
+            nonlocal released
+            with release_guard:
+                if not released:
+                    released = True
+                    session_lock.release()
+
         def events():
             try:
                 messages = _to_langchain_messages(store.load_conversation_messages(session_id, conversation_id))
@@ -218,7 +342,7 @@ def create_app(store, rag_turn, secure_cookies: bool = False, lifespan=None, aut
                     if event == "delta":
                         answer_parts.append(data["text"])
                     if event == "done":
-                        saved = store.save_complete_conversation_turn(session_id, conversation_id, question, "".join(answer_parts))
+                        saved = store.save_complete_conversation_turn(session_id, conversation_id, question, "".join(answer_parts), sources=data.get('sources', []))
                         if saved is None:
                             raise RuntimeError('对话在回答期间已被删除，无法保存本次问答')
                         request.state.request_outcome = "completed"
@@ -240,9 +364,9 @@ def create_app(store, rag_turn, secure_cookies: bool = False, lifespan=None, aut
                 request.state.request_error = traceback.format_exc()
                 yield _sse("error", {"message": SAFE_ERROR_MESSAGE, "request_id": request.state.request_id})
             finally:
-                session_lock.release()
+                release_once()
 
-        response = StreamingResponse(events(), media_type="text/event-stream")
+        response = _OwnedEventResponse(events(), release_once)
         if is_new:
             set_session_cookie(response, session_id)
         return response
@@ -260,6 +384,16 @@ class _StartupRagTurn:
         if self.turn is None:
             raise RuntimeError("RAG 服务尚未启动")
         return self.turn.stream(question, messages, **options)
+
+    @property
+    def VERSION(self): return self.turn.VERSION
+
+    @property
+    def understanding(self):
+        # Recovery wiring inspects this capability on the startup delegate.
+        return getattr(self.turn, 'understanding', None)
+
+    def delete_checkpoints(self, task_id): return self.turn.delete_checkpoints(task_id)
 
 
 class _StartupDelegate:
@@ -301,17 +435,61 @@ def create_default_app(database_path: Path | None = None, secure_cookies: bool |
             config = postgres_settings(settings)
             store.delegate = PostgresUserConversationStore(**config)
             authentication.delegate = PostgresLoginSessions(PostgresAccountStore(**config), **config)
-        startup_turn.turn = create_web_rag_turn()
-        try:
-            yield
-        finally:
-            startup_turn.turn = None
-            if authentication is not None:
-                authentication.delegate = None
-                store.delegate = None
+        with ExitStack() as resources:
+            recovery = authentication is not None and frontend == 'react'
+            if recovery:
+                from checkpoint_storage import CheckpointStorage
+                config = postgres_settings(settings)
+                checkpoint = resources.enter_context(CheckpointStorage(config, schema=config['schema']))
+                from memory_storage import MemoryStore
+                from memory_api import create_memory_service
+                _app.state.memory_store = MemoryStore(**config)
+                _app.state.memory_service = create_memory_service()
+                from context_storage import ContextStore
+                from conversation_context import create_context_service, PromptBudget
+                _app.state.context_store = ContextStore(**config)
+                context_service = create_context_service(settings)
+                from reflection_storage import ReflectionStore
+                from memory_reflection import ReflectionService
+                from reflection_runner import ReflectionRunner
+                _app.state.reflection_store = ReflectionStore(memory=_app.state.memory_store,**config)
+                _app.state.memory_store.reflection = _app.state.reflection_store
+                model_memory=settings.get('MODEL_MEMORY_TOOLS_ENABLED','false').lower()=='true'
+                if model_memory:
+                    from memory_fact_storage import MemoryFactStore
+                    from memory_tools import MemoryTools
+                    _app.state.memory_store.facts=MemoryFactStore(_app.state.memory_store)
+                    _app.state.memory_store.tools=MemoryTools(_app.state.memory_service,_app.state.memory_store.facts)
+                    _app.state.context_store.semantic=True
+                # Background extraction can wait longer without blocking chat.
+                reflection_model = create_context_service(settings, request_timeout=float(settings.get('MEMORY_REVIEW_TIMEOUT','90'))).model
+                reflection_service = ReflectionService(reflection_model,_app.state.memory_service)
+                reflection_runner = ReflectionRunner(_app.state.reflection_store,reflection_service,lease=checkpoint)
+                startup_turn.turn = create_web_rag_turn(checkpointer=checkpoint.saver, account_memory=True,
+                    prompt_budget=PromptBudget(),**({'model_memory':True} if model_memory else {}))
+                _app.state.recovery_config = {'scope_resolver': authentication.accounts.allowed_knowledge_bases,
+                    'lease': checkpoint, 'memory_service': _app.state.memory_service, 'context_service':context_service}
+            else:
+                startup_turn.turn = create_web_rag_turn()
+            if frontend == 'react':
+                _app.state.generation_runner()
+            if recovery:
+                reflection_runner.start()
+            try:
+                yield
+            finally:
+                if recovery: reflection_runner.shutdown()
+                if frontend == 'react':
+                    runner = _app.state.generation_runner()
+                    if recovery: runner.shutdown()
+                    else: runner.tasks.interrupt_running()
+                startup_turn.turn = None
+                if authentication is not None:
+                    authentication.delegate = None
+                    store.delegate = None
 
     return create_app(store, startup_turn, secure, lifespan=lifespan, authentication=authentication,
-                      frontend_directory=frontend_directory)
+                      frontend_directory=frontend_directory, background_tasks=frontend == 'react')
 
 
 def _create_store(database_path, settings):

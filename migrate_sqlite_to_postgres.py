@@ -41,6 +41,9 @@ def read_source(path):
         connection.execute('BEGIN')  # One consistent read snapshot, even if the web app is running.
         if connection.execute('PRAGMA foreign_key_check').fetchall():
             raise ValueError('SQLite has broken foreign-key relationships')
+        if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='conversation_sources'").fetchone():
+            if connection.execute('SELECT 1 FROM conversation_sources LIMIT 1').fetchone():
+                raise ValueError('SQLite contains source snapshots; this legacy migration cannot preserve them')
         result = {}
         for table, columns in COLUMNS.items():
             actual = tuple(row[1] for row in connection.execute(f'PRAGMA table_info("{table}")'))

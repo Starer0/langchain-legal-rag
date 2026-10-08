@@ -109,6 +109,15 @@ class StreamingRagTurnTests(unittest.TestCase):
         self.assertFalse(self.retriever.states[0]["include_guide"])
         self.assertEqual(self.prompt.values[0]["question"], "那工资呢？")
 
+    def test_length_terminated_answer_never_emits_completed_legal_answer(self):
+        from langchain_core.messages import AIMessageChunk
+        from conversation_context import ContextTooLong
+        self.model.chunks=[AIMessageChunk(content='尚未完整的结论'),AIMessageChunk(content='',response_metadata={'finish_reason':'length'})]
+        events=[]
+        with self.assertRaises(ContextTooLong):
+            for event in self.turn.stream('工资呢',[]):events.append(event)
+        self.assertNotIn('done',[e['event'] for e in events])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -29,8 +29,11 @@ class RagRequestTrace:
     def emit(self, event, **fields):
         write_event(self.logger, event, **self.identity, **fields)
 
-    def begin(self, question):
+    def begin(self, question, *, private=False):
         value = logged_text(question)
+        if private:
+            self.emit('memory_command_started', question_chars=value['chars'])
+            return
         self.emit('rag_started', question=value['text'], question_chars=value['chars'],
                   question_truncated=value['truncated'])
 

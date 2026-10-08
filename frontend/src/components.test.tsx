@@ -25,6 +25,7 @@ function controller(overrides: Partial<ChatController> = {}): ChatController {
     status: "",
     error: "",
     busy: false,
+    runningConversationId: null,
     loginBusy: false,
     setDraft: vi.fn(),
     login: vi.fn(async () => {}),
@@ -40,6 +41,32 @@ function controller(overrides: Partial<ChatController> = {}): ChatController {
   };
 }
 describe("ChatView", () => {
+  it("opens account memory independently and shows degradation outside the answer", async () => {
+    const request = vi.fn(async () => ({core_text:"先说结论", extended_text:"", enabled:true, revision:1, updated_at:null}));
+    render(<ChatView chat={controller({memoryRequest:request, memoryWarning:"本次未使用扩展记忆", messages:[{id:"a",role:"assistant",content:"法律答案",sources:[]}]})} />);
+    expect(screen.getByText("本次未使用扩展记忆")).toHaveAttribute("role", "status");
+    expect(screen.getByText("法律答案").closest("article")).not.toHaveTextContent("本次未使用扩展记忆");
+    await userEvent.click(screen.getByRole("button", {name:"长期记忆"}));
+    expect(await screen.findByRole("dialog", {name:"长期记忆"})).toBeVisible();
+    expect(await screen.findByLabelText("核心记忆")).toHaveValue("先说结论");
+    expect(request).toHaveBeenCalledWith("/api/memory");
+  });
+  it("allows viewing another conversation and identifies the background generating row", async () => {
+    const chat = controller({
+      busy: true,
+      runningConversationId: "c",
+      conversations: [
+        { id: "c", title: "劳动合同问题" },
+        { id: "other", title: "其他对话" },
+      ],
+    });
+    render(<ChatView chat={chat} />);
+    expect(
+      screen.getByRole("status", { name: "劳动合同问题 正在生成回答" }),
+    ).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "其他对话" }));
+    expect(chat.select).toHaveBeenCalledWith("other");
+  });
   it("fills a suggestion without sending it", async () => {
     const chat = controller();
     render(<ChatView chat={chat} />);

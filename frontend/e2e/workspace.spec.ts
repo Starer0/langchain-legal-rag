@@ -5,7 +5,7 @@ async function fixture(page: Page, initialHistory: boolean = false) {
   let sequence = 0;
   let calls = 0;
   let streamFailure = false;
-  const catalogs: Record<string, { id: string; title: string; messages: { role: string; content: string }[] }[]> = {
+  const catalogs: Record<string, { id: string; title: string; messages: { role: string; content: string; sources?: unknown[] }[] }[]> = {
     demo_ab: initialHistory ? [{ id: 'long-history', title: '旧聊天', messages: Array.from({ length: 40 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: `第 ${i + 1} 条消息：` + '这是一段用于验证阅读滚动的法律资料。'.repeat(8) })) }] : [],
     demo_c: [],
   };
@@ -37,7 +37,7 @@ async function fixture(page: Page, initialHistory: boolean = false) {
       const answer = '**试用期规定**\n\n> 根据当前可访问资料回答。\n\n最长六个月。';
       const sources = [{ law_name: '劳动合同法', article: '第十九条', pages: [4], content: '试用期最长不得超过六个月。' }];
       if (!streamFailure) {
-        conversation.messages.push({ role: 'user', content: question }, { role: 'assistant', content: answer });
+        conversation.messages.push({ role: 'user', content: question }, { role: 'assistant', content: answer, sources });
         conversation.title = question.slice(0, 80);
       }
       return route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream', 'X-Request-ID': 'fixture-request' }, body:
@@ -57,6 +57,36 @@ async function login(page: Page, username = 'demo_ab') {
   await page.getByRole('button', { name: '登录', exact: true }).click();
   await expect(page.getByRole('textbox', { name: '法律问题' })).toBeEnabled();
 }
+
+test('short memory panel brings clear confirmation into view and keeps automation enabled', async ({ page }) => {
+  await fixture(page);
+  let memory = {core_text:'先给结论',extended_text:'Python初学者',enabled:true,revision:1,updated_at:null,
+    auto_accumulate:true,policy_epoch:1,reflection_status:[],suggestions:[]};
+  await page.route('**/api/memory', async route => {
+    if(route.request().method()==='PUT'){
+      const draft=route.request().postDataJSON();
+      memory={...memory,core_text:draft.core_text,extended_text:draft.extended_text,enabled:draft.enabled,revision:memory.revision+1};
+    }
+    await route.fulfill({contentType:'application/json',body:JSON.stringify(memory)});
+  });
+  await page.setViewportSize({width:375,height:520});
+  await page.goto('/');await login(page);
+  await page.getByRole('button',{name:'打开对话列表'}).click();
+  await page.getByRole('button',{name:'长期记忆',exact:true}).click();
+  await page.getByRole('button',{name:'清空核心记忆',exact:true}).click();
+  const confirm=page.getByRole('button',{name:'确认清空',exact:true});
+  await expect(confirm).toBeInViewport({ratio:1});
+  await expect(page.getByRole('button',{name:'取消',exact:true})).toBeFocused();
+  await expect(page.getByLabel('核心记忆')).toHaveValue('先给结论');
+  await confirm.click();
+  await expect(page.getByLabel('核心记忆')).toHaveValue('');
+  const automation=page.getByLabel('自动积累长期记忆（后台处理）');
+  await expect(automation).toBeChecked();await expect(automation).toBeDisabled();
+  await page.getByRole('button',{name:'保存记忆',exact:true}).click();
+  await expect(page.getByText('记忆已保存',{exact:true})).toBeVisible();
+  await expect(automation).toBeChecked();await expect(automation).toBeEnabled();
+  await expect(page.getByLabel('扩展记忆')).toHaveValue('Python初学者');
+});
 
 test('short mobile login viewport can scroll to the submit button', async ({ page }) => {
   await fixture(page);
@@ -138,6 +168,22 @@ test('failed stream restores question and removes partial answer', async ({ page
   await expect(page.getByRole('alert')).toContainText('fixture-request');
   await expect(page.getByRole('textbox', { name: '法律问题' })).toHaveValue('保留这条问题');
   await expect(page.getByText('最长六个月。', { exact: true })).toHaveCount(0);
+});
+
+test('answer sources remain attached after page reload and conversation switching', async ({ page }) => {
+  await fixture(page);
+  await page.goto('/');
+  await login(page);
+  await page.getByRole('textbox', { name: '法律问题' }).fill('试用期最长多久');
+  await page.getByRole('button', { name: '发送问题' }).click();
+  await expect(page.getByText('最长六个月。', { exact: true })).toBeVisible();
+  await page.reload();
+  await page.getByText('参考来源', { exact: false }).click();
+  await expect(page.getByText('试用期最长不得超过六个月。', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '新建对话', exact: false }).click();
+  await page.getByRole('button', { name: '试用期最长多久', exact: true }).click();
+  await page.getByText('参考来源', { exact: false }).click();
+  await expect(page.getByText('试用期最长不得超过六个月。', { exact: true })).toBeVisible();
 });
 
 test('long history scrolls inside pane with composer anchored', async ({ page }) => {

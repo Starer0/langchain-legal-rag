@@ -36,7 +36,10 @@ export interface ChatController {
   status: string;
   error: string;
   busy: boolean;
+  runningConversationId: string | null;
   loginBusy: boolean;
+  memoryWarning?: string;
+  memoryRequest?(path:string, options?:RequestInit):Promise<unknown>;
   setDraft(value: string): void;
   login(username: string, password: string): Promise<void>;
   logout(): Promise<void>;

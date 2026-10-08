@@ -34,6 +34,8 @@ class PostgreSQLStorageTests(unittest.TestCase):
         self.schema = 'storage_test_' + uuid4().hex
         migrate(self.source, self.db, apply=True, schema=self.schema)
         self.addCleanup(self.cleanup_schema)
+        from prepare_source_history import prepare_sources
+        prepare_sources(self.db, apply=True, schema=self.schema)
         from postgres_storage import PostgresConversationStore
         self.store = PostgresConversationStore(schema=self.schema, **self.settings)
 
@@ -53,6 +55,23 @@ class PostgreSQLStorageTests(unittest.TestCase):
         self.assertIsNone(store.load_conversation_messages('other', self.old.id))
         self.assertFalse(store.conversation_belongs_to('other', self.old.id))
         self.assertIsNone(store.save_complete_conversation_turn('other', self.old.id, 'x', 'y'))
+
+    def test_background_task_migration_completion_and_rollback(self):
+        from prepare_generation_tasks import prepare_tasks
+        from generation_tasks import TaskStore
+        self.assertFalse(prepare_tasks(self.db, schema=self.schema)['ready'])
+        self.assertEqual(prepare_tasks(self.db, apply=True, schema=self.schema)['action'], 'prepared')
+        self.assertEqual(prepare_tasks(self.db, apply=True, schema=self.schema)['action'], 'already_ready')
+        tasks = TaskStore(self.store)
+        task, created = tasks.create('owner', self.old.id, '新问题', 'key', 'request')
+        self.assertTrue(created)
+        self.assertIsNone(tasks.get('other', self.old.id, task['id']))
+        self.assertEqual(tasks.create('owner', self.old.id, '新问题', 'key', 'request')[0]['id'], task['id'])
+        with self.assertRaises(ValueError): tasks.create('owner', self.old.id, '另一个', 'key2', 'request')
+        self.assertTrue(tasks.complete(task['id'], '新回答', [{'content': '新来源'}]))
+        self.assertFalse(tasks.complete(task['id'], '重复', []))
+        self.assertEqual(self.store.load_conversation_messages('owner', self.old.id)[-2:], [('user', '新问题'), ('assistant', '新回答')])
+        self.assertEqual(self.store.load_conversation_history('owner', self.old.id)[-1]['sources'][0]['content'], '新来源')
 
     def test_conversation_lifecycle_and_custom_title(self):
         session = self.store.ensure_session(None)
@@ -134,12 +153,33 @@ class PostgreSQLStorageTests(unittest.TestCase):
         credentials_path = Path(self.directory.name) / 'accounts.json'
         prepare_accounts(self.db, credentials_path, apply=True, schema=self.schema)
         prepare_login(self.db, apply=True, schema=self.schema)
+        from prepare_generation_tasks import prepare_tasks
+        prepare_tasks(self.db, apply=True, schema=self.schema)
+        from prepare_web_recovery import prepare_recovery
+        prepare_recovery(self.settings, apply=True, schema=self.schema)
+        from prepare_account_memory import prepare_memory
+        prepare_memory(self.db, apply=True, schema=self.schema)
+        from prepare_conversation_context import prepare_context
+        prepare_context(self.db, apply=True, schema=self.schema)
+        from prepare_memory_reflection import prepare_reflection
+        prepare_reflection(self.db,apply=True,schema=self.schema)
+        from prepare_memory_tools import prepare_memory_tools
+        prepare_memory_tools(self.db,apply=True,schema=self.schema)
+        def cleanup_graph():
+            from psycopg2 import sql
+            assert self.schema.startswith('storage_test_') and len(self.schema) == 45
+            with self.db, self.db.cursor() as cursor:
+                cursor.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(self.schema + '_graph')))
+        self.addCleanup(cleanup_graph)
         credential = json.loads(credentials_path.read_text())['accounts'][0]
         sqlite_path = Path(self.directory.name) / 'must-not-create.sqlite3'
         env = {'WEB_STORAGE_BACKEND': 'postgres', 'WEB_POSTGRES_SCHEMA': self.schema,
-               'WEB_DATABASE_PATH': str(sqlite_path)}
-        with patch.dict(os.environ, env), patch('web_app.create_web_rag_turn', return_value=SuccessfulTurn()):
+               'WEB_DATABASE_PATH': str(sqlite_path),'MODEL_MEMORY_TOOLS_ENABLED':'true'}
+        with patch.dict(os.environ, env), patch('web_app.create_web_rag_turn', return_value=SuccessfulTurn()) as factory:
             with TestClient(create_default_app()) as client:
+                self.assertTrue(factory.call_args.kwargs['model_memory'])
+                self.assertIsNotNone(client.app.state.memory_store.facts)
+                self.assertTrue(client.app.state.context_store.semantic)
                 self.assertEqual(client.get('/api/conversations').status_code, 401)
                 login = client.post('/api/auth/login', json={'username': credential['username'], 'password': credential['password']})
                 self.assertEqual(login.status_code, 200)

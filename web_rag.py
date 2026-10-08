@@ -32,6 +32,17 @@ class StreamingRagTurn:
     def stream(
         self, question: str, messages: Sequence[BaseMessage], *, allowed_knowledge_bases=None, trace=None
     ) -> Iterator[dict]:
+        state = self._prepare_state(question, messages, allowed_knowledge_bases, trace)
+        for stage, operation in [('rewrite', self._rewrite_state), ('retrieve', self._retrieve_state), ('rerank', self._rerank_state)]:
+            yield {'event': 'status', 'data': {'stage': stage}}
+            state.update(operation(state))
+        if self._has_no_evidence(state):
+            yield from self._no_evidence_events(state)
+        else:
+            yield {'event': 'status', 'data': {'stage': 'answer'}}
+            yield from self._answer_events(state)
+
+    def _prepare_state(self, question, messages, allowed_knowledge_bases, trace, *, private_question=False):
         original_question = question.strip()
         if not original_question:
             raise ValueError("问题不能为空")
@@ -43,37 +54,37 @@ class StreamingRagTurn:
         if trace is not None:
             if scope is None or trace.scope != scope:
                 raise ValueError('日志范围必须与本次服务器权限一致')
-            trace.begin(original_question)
+            if private_question: trace.begin(original_question, private=True)
+            else: trace.begin(original_question)
 
         started = perf_counter()
         profile = TurnProfile()
         history = recent_complete_turns(messages, self.history_turns)
-        rewrite_options = {}
         if scope is not None:
             history = [message for message in history if isinstance(message, HumanMessage)]
-            rewrite_options['allowed_knowledge_bases'] = scope
+        state = {'question': original_question, 'history': history,
+                 '_profile': profile, '_trace': trace, '_started': started}
+        if scope is not None: state['allowed_knowledge_bases'] = scope
+        return state
 
-        yield {"event": "status", "data": {"stage": "rewrite"}}
+    def _rewrite_state(self, state):
+        trace, profile = state['_trace'], state['_profile']
+        scope = state.get('allowed_knowledge_bases')
+        rewrite_options = {'allowed_knowledge_bases': scope} if scope is not None else {}
         with _logged_stage(trace, 'rewrite') as details:
             plan = profile.measure(
                 "rewrite",
-                lambda: self.rewriter.rewrite(original_question, history, **rewrite_options),
+                lambda: self.rewriter.rewrite(state['question'], state['history'], **rewrite_options),
             )
             if trace is not None:
                 value = logged_text(plan.retrieval_question)
                 details.update(retrieval_question=value['text'], retrieval_question_chars=value['chars'],
                                retrieval_question_truncated=value['truncated'], include_guide=plan.include_guide)
-        retrieval_question = plan.retrieval_question
-        state = {
-            "question": original_question,
-            "retrieval_question": retrieval_question,
-            "include_guide": plan.include_guide,
-            "_profile": profile,
-        }
-        if scope is not None:
-            state['allowed_knowledge_bases'] = scope
+        return {'retrieval_question': plan.retrieval_question, 'include_guide': plan.include_guide}
 
-        yield {"event": "status", "data": {"stage": "retrieve"}}
+    def _retrieve_state(self, state):
+        trace, profile = state['_trace'], state['_profile']
+        scope = state.get('allowed_knowledge_bases')
         with _logged_stage(trace, 'retrieve') as details:
             candidates = self.retriever.invoke(state)
             if scope is not None:
@@ -81,8 +92,11 @@ class StreamingRagTurn:
             if trace is not None:
                 details.update(trace.documents(candidates))
                 details['performance'] = profile.snapshot()
+        return {'candidates': candidates}
 
-        yield {"event": "status", "data": {"stage": "rerank"}}
+    def _rerank_state(self, state):
+        trace = state['_trace']
+        scope, candidates = state.get('allowed_knowledge_bases'), state['candidates']
         if candidates or scope is None:
             with _logged_stage(trace, 'rerank') as details:
                 rerank_candidates = deepcopy(candidates) if scope is not None else candidates
@@ -95,33 +109,55 @@ class StreamingRagTurn:
             docs = []
             if trace is not None:
                 trace.skipped('rerank', 'no_accessible_candidates')
+        return {'docs': docs}
 
-        if scope is not None and not docs:
-            if trace is not None:
-                trace.skipped('answer', 'no_accessible_evidence')
-            answer = '当前账号可访问的资料中没有足够依据。'
-            yield {'event': 'delta', 'data': {'text': answer}}
-            yield {'event': 'done', 'data': {
-                'answer': answer, 'retrieval_question': retrieval_question,
-                'candidates': format_sources(candidates), 'sources': [],
-                'performance': profile.snapshot(total_ms=(perf_counter() - started) * 1000),
-            }}
-            return
+    def _has_no_evidence(self, state):
+        return state.get('allowed_knowledge_bases') is not None and not state['docs']
 
-        yield {"event": "status", "data": {"stage": "answer"}}
+    def _no_evidence_events(self, state):
+        trace = state['_trace']
+        if trace is not None: trace.skipped('answer', 'no_accessible_evidence')
+        answer = '当前账号可访问的资料中没有足够依据。'
+        yield {'event': 'delta', 'data': {'text': answer}}
+        yield {'event': 'done', 'data': self._completion(state, answer)}
+
+    def _answer_events(self, state):
+        trace, profile, docs = state['_trace'], state['_profile'], state['docs']
         answer_parts = []
         answer_started = perf_counter()
+        chunks = None
         with _logged_stage(trace, 'answer') as details:
+            if state.get('_cancelled') is not None and state['_cancelled'].is_set():
+                raise GeneratorExit('Graph stream observer closed')
             if trace is not None:
                 details.update(trace.documents(docs))
-            for chunk in self.model.stream(self.prompt.invoke({
+            values = {
                 "context": format_docs(docs),
-                "question": original_question,
-            })):
-                text = _chunk_text(chunk)
-                if text:
-                    answer_parts.append(text)
-                    yield {"event": "delta", "data": {"text": text}}
+                "question": state['question'],
+            }
+            if 'memory' in state:
+                memory = state['memory']
+                values['memory'] = '核心记忆：\n' + memory['core'] + '\n\n相关背景：\n' + memory['extended']
+                style=state.get('decision',{}).get('answer',{}).get('reply_plan','')
+                if style:values['memory']+='\n本轮表达要求（不作为长期记忆）：\n'+style+'\n只应用表达要求，法律结论仍必须来自授权资料。记忆提交结果会另行展示，回答中不要声称已保存或已更新记忆。'
+            rendered_prompt = self.prompt.invoke(values)
+            if getattr(self, 'prompt_budget', None) is not None: self.prompt_budget.check(rendered_prompt)
+            chunks = self.model.stream(rendered_prompt)
+            try:
+                for chunk in chunks:
+                    if getattr(chunk,'response_metadata',{}).get('finish_reason')=='length':
+                        from conversation_context import ContextTooLong
+                        raise ContextTooLong('回答达到输出长度上限，尚未完整，请缩小问题范围。')
+                    if state.get('_cancelled') is not None and state['_cancelled'].is_set():
+                        raise GeneratorExit('Graph stream observer closed')
+                    text = _chunk_text(chunk)
+                    if text:
+                        answer_parts.append(text)
+                        yield {"event": "delta", "data": {"text": text}}
+            finally:
+                if hasattr(chunks, 'close'): chunks.close()
+            if state.get('_cancelled') is not None and state['_cancelled'].is_set():
+                raise GeneratorExit('Graph stream observer closed')
             details['answer_chars'] = sum(len(part) for part in answer_parts)
         profile.stages["answer"] = {
             "calls": 1,
@@ -131,16 +167,16 @@ class StreamingRagTurn:
         answer = "".join(answer_parts)
         yield {
             "event": "done",
-            "data": {
-                "answer": answer,
-                "retrieval_question": retrieval_question,
-                "candidates": format_sources(candidates),
-                "sources": format_sources(docs),
-                "performance": profile.snapshot(
-                    total_ms=(perf_counter() - started) * 1000
-                ),
-            },
+            "data": self._completion(state, answer),
         }
+
+    def _completion(self, state, answer):
+        result = {'answer': answer, 'retrieval_question': state['retrieval_question'],
+                'candidates': format_sources(state['candidates']), 'sources': format_sources(state['docs']),
+                'performance': state['_profile'].snapshot(total_ms=(perf_counter() - state['_started']) * 1000)}
+        if 'memory' in state:
+            result['memory'] = {k: state['memory'][k] for k in ('revision', 'status', 'warning')}
+        return result
 
 
 def _logged_stage(trace, stage):

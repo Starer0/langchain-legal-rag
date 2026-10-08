@@ -9,6 +9,8 @@ from contextlib import contextmanager
 
 import psycopg2
 from psycopg2 import sql
+from psycopg2.extras import Json
+from source_snapshots import snapshot_sources, history_message
 
 from migrate_sqlite_to_postgres import COLUMNS
 from web_storage import Conversation, _title_from_question, _utc_now
@@ -95,9 +97,21 @@ class PostgresConversationStore:
             cursor.execute(sql.SQL('SELECT role,content FROM {} WHERE conversation_id=%s ORDER BY ordinal').format(self._table('conversation_messages')), (conversation_id,))
             return cursor.fetchall()
 
-    def save_complete_conversation_turn(self, session_id, conversation_id, question, answer):
+    def load_conversation_history(self, session_id, conversation_id):
+        with self._cursor() as cursor:
+            cursor.execute(sql.SQL('SELECT 1 FROM {} WHERE id=%s AND {}=%s FOR SHARE').format(self._table('conversations'), sql.Identifier(self.owner_column)), (conversation_id, session_id))
+            if cursor.fetchone() is None:
+                return None
+            cursor.execute(sql.SQL('SELECT m.role,m.content,s.sources FROM {} m LEFT JOIN {} s '
+                                   'ON s.conversation_id=m.conversation_id AND s.ordinal=m.ordinal '
+                                   'WHERE m.conversation_id=%s ORDER BY m.ordinal').format(
+                                       self._table('conversation_messages'), self._table('conversation_sources')), (conversation_id,))
+            return [history_message(*row) for row in cursor.fetchall()]
+
+    def save_complete_conversation_turn(self, session_id, conversation_id, question, answer, *, sources=None):
         if not question.strip() or not answer.strip():
             raise ValueError('问题和回答不能为空')
+        snapshot = snapshot_sources(sources)
         with self._cursor() as cursor:
             # Serialize ordinal allocation across connections, including workers.
             cursor.execute(sql.SQL('SELECT title,title_is_custom FROM {} WHERE id=%s AND {}=%s FOR UPDATE').format(self._table('conversations'), sql.Identifier(self.owner_column)), (conversation_id, session_id))
@@ -109,6 +123,9 @@ class PostgresConversationStore:
             ordinal = cursor.fetchone()[0]
             cursor.executemany(sql.SQL('INSERT INTO {} (conversation_id,ordinal,role,content,created_at) VALUES (%s,%s,%s,%s,%s)').format(self._table('conversation_messages')),
                                [(conversation_id, ordinal, 'user', question, now), (conversation_id, ordinal+1, 'assistant', answer, now)])
+            if snapshot:
+                cursor.execute(sql.SQL('INSERT INTO {} (conversation_id,ordinal,sources) VALUES (%s,%s,%s)').format(self._table('conversation_sources')),
+                               (conversation_id, ordinal+1, Json(snapshot)))
             title = _title_from_question(question) if not row[1] and row[0] == '新对话' else row[0]
             cursor.execute(sql.SQL('UPDATE {} SET title=%s,updated_at=%s WHERE id=%s').format(self._table('conversations'), sql.Identifier(self.owner_column)), (title, now, conversation_id))
         return Conversation(conversation_id, title, now)
@@ -141,3 +158,6 @@ class PostgresUserConversationStore(PostgresConversationStore):
         with self._cursor() as cursor:
             if not login_schema_ready(cursor, schema):
                 raise RuntimeError('Login migration is not ready')
+            from prepare_source_history import source_schema_ready
+            if not source_schema_ready(cursor, schema):
+                raise RuntimeError('Source history migration is not ready; run prepare_source_history.py --apply first')

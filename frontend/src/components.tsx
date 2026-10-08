@@ -9,6 +9,7 @@ import {
   ArrowDown,
   ArrowUp,
   BookOpen,
+  Brain,
   Check,
   ChevronRight,
   FileText,
@@ -25,6 +26,7 @@ import {
 } from "lucide-react";
 import { renderMarkdown } from "../../web/static/markdown.mjs";
 import type { ChatController, Conversation, Message } from "./types";
+import { MemorySettings } from "./MemorySettings";
 
 const suggestions = [
   "试用期最长可以约定多久？",
@@ -52,7 +54,10 @@ function ErrorNotice({ chat }: { chat: ChatController }) {
     <div className="error-notice" role="alert">
       <span>{chat.error}</span>
       {["history-error", "load-error"].includes(chat.phase) && (
-        <button onClick={() => void chat.retry()} disabled={chat.busy}>
+        <button
+          onClick={() => void chat.retry()}
+          disabled={chat.busy && !chat.runningConversationId}
+        >
           重新加载
         </button>
       )}
@@ -216,10 +221,12 @@ function Sidebar({
   chat,
   onSelect,
   onEdit,
+  onMemory,
 }: {
   chat: ChatController;
   onSelect: () => void;
   onEdit: (mode: "rename" | "delete", conversation: Conversation) => void;
+  onMemory: () => void;
 }) {
   return (
     <>
@@ -248,7 +255,7 @@ function Sidebar({
               className="conversation-select"
               title={c.title}
               aria-current={c.id === chat.activeId ? "page" : undefined}
-              disabled={chat.busy}
+              disabled={chat.busy && !chat.runningConversationId}
               onClick={() => {
                 void chat.select(c.id);
                 onSelect();
@@ -256,6 +263,15 @@ function Sidebar({
             >
               <MessageSquare size={16} />
               <span>{c.title}</span>
+              {chat.runningConversationId === c.id && (
+                <span
+                  className="conversation-spinner"
+                  role="status"
+                  aria-label={`${c.title} 正在生成回答`}
+                >
+                  <Spinner />
+                </span>
+              )}
             </button>
             <div className="conversation-actions">
               <button
@@ -284,6 +300,7 @@ function Sidebar({
         )}
       </nav>
       <div className="sidebar-bottom">
+        {chat.memoryRequest && <button className="memory-entry" onClick={onMemory}><Brain size={17}/>长期记忆</button>}
         <div className="workspace-note">
           <ShieldCheck size={16} />
           <div>
@@ -494,6 +511,7 @@ function Composer({
 }) {
   const composing = useRef(false);
   const enabled = chat.phase === "ready" && !chat.busy;
+  const activeGenerating = chat.runningConversationId === chat.activeId;
   useEffect(() => {
     const input = inputRef.current;
     if (input) {
@@ -505,10 +523,16 @@ function Composer({
     <div className="composer-area">
       <div className="composer-content">
         <ErrorNotice chat={chat} />
+        {chat.memoryWarning && <div className="memory-warning" role="status">{chat.memoryWarning}</div>}
         {chat.status && (
           <div className="stage-status" role="status">
             <Spinner />
             {chat.status}
+          </div>
+        )}
+        {chat.runningConversationId && !activeGenerating && (
+          <div className="stage-status" role="status">
+            另一个对话正在生成回答，你可以先浏览历史记录。
           </div>
         )}
         <form
@@ -556,7 +580,11 @@ function Composer({
             aria-label="发送问题"
             disabled={!enabled || !chat.draft.trim()}
           >
-            {chat.busy ? <Spinner /> : <ArrowUp size={20} />}
+            {chat.busy && (!chat.runningConversationId || activeGenerating) ? (
+              <Spinner />
+            ) : (
+              <ArrowUp size={20} />
+            )}
           </button>
         </form>
         <div className="composer-caption">
@@ -662,6 +690,7 @@ function EditDialog({
 }
 export function ChatView({ chat }: { chat: ChatController }) {
   const [drawer, setDrawer] = useState(false);
+  const [memoryOpen, setMemoryOpen] = useState(false);
   const [edit, setEdit] = useState<{
     mode: "rename" | "delete";
     conversation: Conversation;
@@ -683,6 +712,7 @@ export function ChatView({ chat }: { chat: ChatController }) {
       chat={chat}
       onSelect={() => setDrawer(false)}
       onEdit={(mode, conversation) => setEdit({ mode, conversation })}
+      onMemory={() => {setDrawer(false);setMemoryOpen(true);}}
     />
   );
   return (
@@ -738,6 +768,7 @@ export function ChatView({ chat }: { chat: ChatController }) {
           onClose={() => setEdit(null)}
         />
       )}
+      {memoryOpen && chat.memoryRequest && <MemorySettings key={chat.user.id} owner={chat.user.id} request={chat.memoryRequest} onClose={() => setMemoryOpen(false)}/>}
     </div>
   );
 }

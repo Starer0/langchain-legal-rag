@@ -3,6 +3,144 @@ import { beforeEach, expect, test, vi } from "vitest";
 import { useChat } from "./useChat";
 import { StrictMode } from "react";
 
+test("recovered task displays context preparation separately from answer generation", async () => {
+  const original = fetch;
+  const task = { id: "context-task", conversation_id: "conv-a", question: "追问", status: "running", stage: "context", answer: "", request_id: "context-request" };
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    if (url === "/api/conversations") return json({ background_tasks: true, conversations: [{ id: "conv-a", title: "A" }] });
+    if (url.endsWith("/generation/active")) return json({ task });
+    if (url.endsWith("conv-a/messages")) return json({ messages: [], task });
+    if (url.endsWith("/tasks/context-task")) return json(task);
+    return original(url);
+  }));
+  const { result, unmount } = renderHook(() => useChat());
+  await waitFor(() => expect(result.current.phase).toBe("ready"));
+  expect(result.current.status).toBe("正在整理对话上下文");
+  unmount();
+});
+
+function heldStream() {
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const response = new Response(
+    new ReadableStream<Uint8Array>({
+      start(value) {
+        controller = value;
+      },
+    }),
+    {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "X-Request-ID": "background-id",
+      },
+    },
+  );
+  return {
+    response,
+    emit(event: string, data: unknown) {
+      controller.enqueue(
+        new TextEncoder().encode(
+          `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`,
+        ),
+      );
+    },
+    close() {
+      controller.close();
+    },
+  };
+}
+
+test("fresh page recovers a running server task without submitting a second question", async () => {
+  const original = fetch;
+  const task = { id: "server-task", conversation_id: "conv-a", question: "已发送问题", status: "running", stage: "answer", answer: "已生成部分", request_id: "task-request" };
+  const submit = vi.fn();
+  vi.stubGlobal("fetch", vi.fn(async (url: string, options?: RequestInit) => {
+    if (url === "/api/conversations") return json({ background_tasks: true, conversations: [{ id: "conv-a", title: "A" }, { id: "conv-b", title: "B" }] });
+    if (url.endsWith("/tasks") && options?.method === "POST") { submit(); return json(task); }
+    if (url.endsWith("/generation/active")) return json({ task });
+    if (url.endsWith("/tasks/server-task")) return json(task);
+    if (url.endsWith("conv-a/messages")) return json({ messages: [], task });
+    return original(url, options);
+  }));
+  const { result, unmount } = renderHook(() => useChat());
+  await waitFor(() => expect(result.current.phase).toBe("ready"));
+  expect(result.current.messages.map(m => m.content)).toEqual(["已发送问题", "已生成部分"]);
+  expect(result.current.runningConversationId).toBe("conv-a");
+  expect(submit).not.toHaveBeenCalled();
+  unmount();
+});
+
+test("switching conversations keeps the original stream alive without contaminating the selected history", async () => {
+  const stream = heldStream();
+  const original = fetch;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, options?: RequestInit) => {
+      if (url.endsWith("/chat")) return stream.response;
+      if (url.includes("conv-b/messages"))
+        return json({ messages: [{ role: "assistant", content: "B旧回答" }] });
+      return original(url, options);
+    }),
+  );
+  const { result } = renderHook(() => useChat());
+  await waitFor(() => expect(result.current.phase).toBe("ready"));
+  act(() => result.current.setDraft("A问题"));
+  let pending!: Promise<void>;
+  act(() => {
+    pending = result.current.send();
+  });
+  await act(() => result.current.select("conv-b"));
+  expect(result.current.activeId).toBe("conv-b");
+  expect(result.current.runningConversationId).toBe("conv-a");
+  await act(async () => stream.emit("delta", { text: "A部分回答" }));
+  expect(result.current.messages.map((m) => m.content)).toEqual(["B旧回答"]);
+  await act(() => result.current.select("conv-a"));
+  expect(result.current.messages.at(-1)?.content).toBe("A部分回答");
+  await act(() => result.current.select("conv-b"));
+  await act(async () => {
+    stream.emit("done", {
+      answer: "A完整回答",
+      sources: [{ content: "A来源" }],
+    });
+    stream.close();
+    await pending;
+  });
+  expect(result.current.activeId).toBe("conv-b");
+  expect(result.current.messages.map((m) => m.content)).toEqual(["B旧回答"]);
+  expect(result.current.runningConversationId).toBeNull();
+  expect(result.current.busy).toBe(false);
+});
+
+test("background stream failure retains its question and request ID only in that conversation", async () => {
+  const stream = heldStream();
+  const original = fetch;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, options?: RequestInit) =>
+      url.endsWith("/chat") ? stream.response : original(url, options),
+    ),
+  );
+  const { result } = renderHook(() => useChat());
+  await waitFor(() => expect(result.current.phase).toBe("ready"));
+  act(() => result.current.setDraft("A失败问题"));
+  let pending!: Promise<void>;
+  act(() => {
+    pending = result.current.send();
+  });
+  await act(() => result.current.select("conv-b"));
+  await act(async () => {
+    stream.emit("delta", { text: "半个回答" });
+    stream.close();
+    await pending;
+  });
+  expect(result.current.activeId).toBe("conv-b");
+  expect(result.current.error).toBe("");
+  expect(result.current.draft).toBe("");
+  await act(() => result.current.select("conv-a"));
+  expect(result.current.draft).toBe("A失败问题");
+  expect(result.current.error).toContain("background-id");
+  expect(result.current.messages).toEqual([]);
+});
+
 const identity = { user: { id: "A", username: "demo_ab" }, csrf_token: "csrf" };
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {

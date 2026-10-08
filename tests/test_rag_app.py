@@ -200,7 +200,7 @@ class CreateRagChainBehaviorTests(unittest.TestCase):
 
     @patch.dict("os.environ", {"HISTORY_TURNS": "3"}, clear=False)
     @patch("builtins.print")
-    @patch("rag_app.StreamingRagTurn")
+    @patch("rag_app.LangGraphStreamingRagTurn")
     @patch("rag_app.SiliconFlowReranker")
     @patch("rag_app.open_corpus")
     @patch("rag_app.OpenAIEmbeddings")

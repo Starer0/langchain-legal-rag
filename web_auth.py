@@ -83,7 +83,7 @@ class AuthenticationMiddleware:
             return await self.app(scope, receive, send)
         request = Request(scope)
         path, method = scope['path'], scope['method']
-        protected = path.startswith('/api/conversations') or path in ('/api/auth/me', '/api/auth/logout')
+        protected = path.startswith('/api/conversations') or path == '/api/memory' or path.startswith('/api/memory/') or path in ('/api/auth/me', '/api/auth/logout')
         auth_api = path.startswith('/api/auth/')
         if not protected and not auth_api:
             return await self.app(scope, receive, send)

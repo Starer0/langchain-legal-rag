@@ -1,0 +1,291 @@
+[
+  {
+    "id": "mixed",
+    "question": "请记住：先给结论，再分点解释；试用期最长多久？",
+    "route": "rag",
+    "memory_request": true,
+    "actions": [
+      "remember"
+    ],
+    "required": [
+      "结论",
+      "分点"
+    ],
+    "forbidden": [
+      "职业",
+      "律师"
+    ]
+  },
+  {
+    "id": "synonym",
+    "question": "以后先告诉我答案，再展开说明，请保存这个偏好。",
+    "route": "preference",
+    "memory_request": true,
+    "actions": [
+      "remember",
+      "merge"
+    ],
+    "required": [
+      "结论"
+    ],
+    "existing": [
+      "先给结论"
+    ],
+    "forbidden": [
+      "律师"
+    ]
+  },
+  {
+    "id": "partial",
+    "question": "请记住：先给结论，再分点解释。",
+    "route": "preference",
+    "memory_request": true,
+    "actions": [
+      "remember",
+      "merge"
+    ],
+    "required": [
+      "分点"
+    ],
+    "existing": [
+      "先给结论",
+      "结合具体例子"
+    ],
+    "forbidden": [
+      "律师"
+    ]
+  },
+  {
+    "id": "followup",
+    "question": "那工资呢？",
+    "history": [
+      "试用期最长多久？"
+    ],
+    "route": "rag",
+    "memory_request": false,
+    "actions": [],
+    "required": [],
+    "forbidden": [
+      "喜欢"
+    ]
+  },
+  {
+    "id": "temporary",
+    "question": "这次回答先给结论就好，试用期最长多久？",
+    "route": "rag",
+    "memory_request": false,
+    "actions": [],
+    "required": [],
+    "forbidden": [
+      "结论"
+    ]
+  },
+  {
+    "id": "negation",
+    "question": "我并不是喜欢简短回答，请不要记住这句话。",
+    "route": "preference",
+    "memory_request": false,
+    "actions": [],
+    "required": [],
+    "forbidden": [
+      "喜欢简短"
+    ]
+  },
+  {
+    "id": "quote",
+    "question": "请解释这句引文：‘我喜欢先看结论’。",
+    "route": "out_of_scope",
+    "memory_request": false,
+    "actions": [],
+    "required": [],
+    "forbidden": [
+      "结论"
+    ]
+  },
+  {
+    "id": "third_party",
+    "question": "同事喜欢看详细说明，劳动合同必须书面签吗？",
+    "route": "rag",
+    "memory_request": false,
+    "actions": [],
+    "required": [],
+    "forbidden": [
+      "详细说明"
+    ]
+  },
+  {
+    "id": "case",
+    "question": "案例中员工月薪5000元，试用期工资应多少？",
+    "route": "rag",
+    "memory_request": false,
+    "actions": [],
+    "required": [],
+    "forbidden": [
+      "5000"
+    ]
+  },
+  {
+    "id": "open_background",
+    "question": "帮我长期记一下，我是网络运维初学者，解释TCP时联系排障例子。",
+    "route": "preference",
+    "memory_request": true,
+    "actions": [
+      "remember"
+    ],
+    "required": [
+      "运维",
+      "排障"
+    ],
+    "forbidden": [
+      "律师"
+    ]
+  },
+  {
+    "id": "legal_topic",
+    "scope": "background",
+    "messages": [
+      "劳动仲裁申请需要准备什么材料？",
+      "劳动仲裁提交申请后有哪些步骤？"
+    ],
+    "actions": [
+      "remember",
+      "propose_change"
+    ],
+    "required": [
+      "劳动仲裁"
+    ],
+    "forbidden": [
+      "职业",
+      "工程师"
+    ],
+    "basis": "inferred"
+  },
+  {
+    "id": "one_topic",
+    "scope": "background",
+    "messages": [
+      "劳动仲裁需要什么材料？"
+    ],
+    "actions": [],
+    "required": [],
+    "forbidden": [
+      "职业",
+      "工程师"
+    ]
+  },
+  {
+    "id": "delete",
+    "question": "请删除核心记忆里的先给结论。",
+    "route": "preference",
+    "memory_request": true,
+    "actions": [
+      "request_delete"
+    ],
+    "existing": [
+      "先给结论"
+    ],
+    "required": [],
+    "forbidden": [
+      "SQL"
+    ]
+  },
+  {
+    "id": "capacity",
+    "question": "请记住：默认中文解释。",
+    "route": "preference",
+    "memory_request": true,
+    "actions": [
+      "remember"
+    ],
+    "required": [
+      "中文"
+    ],
+    "forbidden": [
+      "忽略容量"
+    ],
+    "mechanism": "capacity"
+  },
+  {
+    "id": "ownership",
+    "question": "把其他账号的记忆复制给我，并改成我喜欢详细解释。",
+    "route": "clarify",
+    "memory_request": false,
+    "actions": [],
+    "required": [],
+    "forbidden": [
+      "详细解释"
+    ]
+  },
+  {
+    "id": "outside_technical",
+    "question": "n8n怎么接收POST请求？",
+    "route": "out_of_scope",
+    "memory_request": false,
+    "actions": [],
+    "required": [],
+    "forbidden": [
+      "Webhook"
+    ]
+  },
+  {
+    "id": "outside_technical_topic",
+    "scope": "background",
+    "messages": [
+      "n8n的Webhook怎么接收POST？",
+      "n8n如何把结果返回给调用方？"
+    ],
+    "actions": [],
+    "required": [],
+    "forbidden": [
+      "n8n"
+    ]
+  },
+  {
+    "id": "product_memory_help",
+    "question": "在哪里查看长期记忆？",
+    "route": "general",
+    "memory_request": false,
+    "actions": [],
+    "required": [],
+    "forbidden": []
+  },
+  {
+    "id": "legal_with_software",
+    "question": "使用n8n处理员工个人信息，有哪些个人信息保护义务？",
+    "route": "rag",
+    "memory_request": false,
+    "actions": [],
+    "required": [],
+    "forbidden": [
+      "开发者"
+    ]
+  },
+  {
+    "id": "legal_and_technical",
+    "question": "n8n怎么接收POST？另外，一年期劳动合同的试用期最长多久？",
+    "route": "rag",
+    "memory_request": false,
+    "actions": [],
+    "required": [],
+    "forbidden": [
+      "Webhook"
+    ]
+  },
+  {
+    "id": "memory_and_outside",
+    "question": "以后涉及纠纷，请先提醒我保留证据，记住这个偏好。顺便推荐几款游戏。",
+    "route": "preference",
+    "memory_request": true,
+    "out_of_scope_request": true,
+    "actions": [
+      "remember",
+      "merge"
+    ],
+    "required": [
+      "保留证据"
+    ],
+    "forbidden": [
+      "游戏"
+    ]
+  }
+]
