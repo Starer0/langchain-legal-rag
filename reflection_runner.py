@@ -40,7 +40,7 @@ class ReflectionRunner:
                 sources=refs(messages,True)+refs(context,False)
                 existing['review_sources']=sources
                 existing['suggestions']=self.store.suggestions(job['user_id'])
-                call=self.service.review(messages,existing,context) or MemoryToolCall('',())
+                call=self._review_model(job,lambda:self.service.review(messages,existing,context)) or MemoryToolCall('',())
                 self.alive()
                 tool_context=ToolContext(job['user_id'],'background',job['id'],job['memory_revision'],job['policy_epoch'],
                     dict(document=existing,conversation_id=job['conversation_id'],sources=sources,question='',memory_request=False))
@@ -63,8 +63,34 @@ class ReflectionRunner:
         except Exception:pass
         return True
 
+    def _review_model(self,job,operation):
+        from contextlib import ExitStack
+        from langsmith import trace
+        stack=ExitStack()
+        try:
+            span=stack.enter_context(trace('memory_review',inputs={},tags=['background_memory'],
+                metadata={'job_id':job['id'],'conversation_id':job['conversation_id'],
+                          'stage':'memory_review','reason':job['reason']}))
+        except Exception:
+            # Telemetry must not prevent or repeat the actual model operation.
+            stack.close()
+            return operation()
+        try:
+            result=operation()
+        except Exception as error:
+            try:span.end(error=type(error).__name__)
+            except Exception:pass
+            try:stack.close()
+            except Exception:pass
+            raise
+        try:span.end(outputs={'model_calls':1})
+        except Exception:pass
+        try:stack.close()
+        except Exception:pass
+        return result
+
     def _legacy_apply(self,job,messages,existing,context):
-            checked=self.service.extract(messages,existing,context)
+            checked=self._review_model(job,lambda:self.service.extract(messages,existing,context))
             self.alive()
             try:prepared=self.service.prepare(existing,checked)
             except MemoryValidation:

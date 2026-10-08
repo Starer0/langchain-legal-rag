@@ -32,6 +32,36 @@ class ReflectionRunnerTests(unittest.TestCase):
         self.runner=ReflectionRunner(self.store,self.service,clock=self.clock)
         self.addCleanup(self.runner.shutdown)
 
+    def test_review_trace_links_model_to_job_without_copying_memory_into_parent(self):
+        from langsmith import Client,tracing_context,traceable
+        from langsmith.run_helpers import get_current_run_tree
+        seen=[];parents=[]
+        @traceable(name='synthetic_review_model',run_type='llm')
+        def model_call(prompt):
+            seen.append(get_current_run_tree())
+            self.calls+=1
+            return SimpleNamespace(content=json.dumps({'candidates':[]}))
+        def invoke(prompt):
+            parents.append(get_current_run_tree())
+            return model_call(prompt)
+        self.service.model.invoke=invoke
+        self.fixture.enqueue();self.clock.advance(120)
+        job=self.store.jobs(self.owner,self.cid)[0]
+        with tracing_context(enabled='local',client=Client(api_key='test-only-not-a-real-key')):
+            self.assertTrue(self.runner.pump())
+        self.assertEqual(self.calls,1)
+        child=seen[0];parent=parents[0]
+        self.assertIsNotNone(parent)
+        self.assertEqual(child.parent_run_id,parent.id)
+        self.assertEqual(parent.name,'memory_review')
+        self.assertEqual(parent.extra['metadata']['job_id'],job['id'])
+        self.assertEqual(parent.extra['metadata']['conversation_id'],self.cid)
+        self.assertEqual(parent.inputs,{})
+        self.assertEqual(parent.outputs,{'model_calls':1})
+        self.assertIn('background_memory',parent.tags)
+        self.assertNotIn('core_text',parent.extra['metadata'])
+        self.assertEqual(self.store.jobs(self.owner,self.cid)[0]['status'],'completed')
+
     def test_completion_registers_job_atomically_and_deduplicates(self):
         tasks=TaskStore(self.fixture.f.store,memory=self.memory,reflection=self.store,clock=self.clock.now)
         task,_=tasks.create(self.owner,self.cid,'我喜欢简短回答','key','request')
@@ -124,6 +154,32 @@ class ReflectionRunnerTests(unittest.TestCase):
         with patch.object(self.memory,'save',side_effect=fail),self.assertRaises(RuntimeError):self.store.apply(job['id'],job['epoch'],checked,prepared)
         self.assertEqual(self.memory.read(self.owner)['revision'],0)
         self.assertEqual(self.store.jobs(self.owner,self.cid)[0]['status'],'running')
+
+
+class ReviewTraceFailureTests(unittest.TestCase):
+    def test_unavailable_tracer_does_not_skip_or_repeat_model(self):
+        from unittest.mock import patch
+        runner=ReflectionRunner(None,None)
+        calls=[]
+        job={'id':'j','conversation_id':'c','reason':'idle'}
+        def operation():calls.append('model');return 'result'
+        with patch('langsmith.trace',side_effect=OSError('telemetry unavailable')):
+            self.assertEqual(runner._review_model(job,operation),'result')
+        self.assertEqual(calls,['model'])
+
+    def test_failed_model_has_sanitized_parent_error_and_no_retry(self):
+        from langsmith import Client,tracing_context
+        from langsmith.run_helpers import get_current_run_tree
+        runner=ReflectionRunner(None,None);seen=[]
+        def operation():
+            seen.append(get_current_run_tree())
+            raise TimeoutError('SYNTHETIC_PRIVATE_ERROR')
+        with tracing_context(enabled='local',client=Client(api_key='test-only-not-a-real-key')):
+            with self.assertRaises(TimeoutError):
+                runner._review_model({'id':'j','conversation_id':'c','reason':'idle'},operation)
+        self.assertEqual(len(seen),1)
+        self.assertEqual(seen[0].error,'TimeoutError')
+        self.assertNotIn('SYNTHETIC_PRIVATE_ERROR',str(seen[0].model_dump()))
 
 
 if __name__=='__main__':unittest.main()
